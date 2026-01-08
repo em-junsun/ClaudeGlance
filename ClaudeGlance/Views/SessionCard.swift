@@ -42,11 +42,15 @@ struct SessionCard: View {
                             .lineLimit(1)
                     }
 
-                    // 副标题：项目名 + 元数据 + 时间信息
+                    // 副标题：项目名 + session标识 + 元数据 + 时间信息
                     HStack(spacing: 4) {
                         Text(session.project)
                             .font(.system(size: 11))
                             .foregroundColor(.white.opacity(0.5))
+
+                        Text(session.shortId)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundColor(.white.opacity(0.35))
 
                         if !session.metadata.isEmpty && !session.isStillWaiting {
                             Text("·")

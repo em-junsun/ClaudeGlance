@@ -401,13 +401,14 @@ struct StatusBadge: View {
 // MARK: - About Settings Tab
 struct AboutSettingsTab: View {
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             Spacer()
 
             // App Icon
-            Image(systemName: "sparkles")
-                .font(.system(size: 64))
-                .foregroundStyle(.purple)
+            Image(nsImage: NSApp.applicationIconImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 96, height: 96)
 
             // App Name & Version
             VStack(spacing: 4) {
@@ -426,19 +427,24 @@ struct AboutSettingsTab: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
+            // Author
+            Text("Created by Kim")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Spacer()
 
             // Links
             HStack(spacing: 20) {
                 Button("GitHub") {
-                    if let url = URL(string: "https://github.com") {
+                    if let url = URL(string: "https://github.com/0xkiw1/ClaudeGlance") {
                         NSWorkspace.shared.open(url)
                     }
                 }
                 .buttonStyle(.link)
 
                 Button("Report Issue") {
-                    if let url = URL(string: "https://github.com") {
+                    if let url = URL(string: "https://github.com/0xkiw1/ClaudeGlance/issues") {
                         NSWorkspace.shared.open(url)
                     }
                 }
@@ -446,7 +452,7 @@ struct AboutSettingsTab: View {
             }
 
             // Copyright
-            Text("© 2025 Claude Glance")
+            Text("© 2025 Kim. All rights reserved.")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 

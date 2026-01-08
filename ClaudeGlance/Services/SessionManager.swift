@@ -55,6 +55,9 @@ class SessionManager: ObservableObject {
     // 已记录的会话（用于统计唯一会话数）
     private var recordedSessionKeys: Set<String> = []
 
+    // 记录每个会话的最后 Stop 时间，用于 5 秒静默期
+    private var sessionStopTimes: [String: Date] = [:]
+
     private var cleanupTimer: Timer?
     private var fadeTimer: Timer?
 
@@ -126,8 +129,8 @@ class SessionManager: ObservableObject {
     }
 
     private func handleMessage(_ message: HookMessage) {
-        // 使用 cwd (工作目录) 作为主键来合并同一项目的会话
-        let sessionKey = message.cwd
+        // 使用 session_id 作为主键，每个终端独立显示
+        let sessionKey = message.sessionId
 
         // 统计唯一会话数
         if !recordedSessionKeys.contains(sessionKey) {
@@ -140,7 +143,8 @@ class SessionManager: ObservableObject {
             id: sessionKey,
             terminal: message.terminal,
             project: message.project,
-            cwd: message.cwd
+            cwd: message.cwd,
+            displayAfter: Date().addingTimeInterval(0.5)  // 新会话延迟 500ms 显示
         )
 
         let previousStatus = session.status
@@ -152,6 +156,51 @@ class SessionManager: ObservableObject {
         switch message.event {
         case "PreToolUse":
             let tool = message.data.toolName ?? "Unknown"
+            let timeSinceLastUpdate = Date().timeIntervalSince(session.lastUpdate)
+
+            // 检查会话是否在静默期（Stop 后 10 秒内）
+            // 在此期间忽略所有 PreToolUse，保持 completed 状态显示
+            if let stopTime = sessionStopTimes[sessionKey] {
+                let timeSinceStop = Date().timeIntervalSince(stopTime)
+
+                if timeSinceStop < 10 {
+                    // 静默期内，忽略所有 PreToolUse（都可能是预测操作）
+                    print("Ignoring PreToolUse (\(tool)) during \(String(format: "%.1f", 10 - timeSinceStop))s silent period: \(sessionKey)")
+                    return
+                } else {
+                    // 静默期结束，清除标记
+                    sessionStopTimes.removeValue(forKey: sessionKey)
+
+                    // 只有当 session 仍然是 completed 状态时，才忽略 PreToolUse
+                    // 如果是 idle（新创建的 session），说明是新的交互，应该正常处理
+                    if previousStatus == .completed {
+                        sessions.removeValue(forKey: sessionKey)
+                        updateActiveSessions()
+                        print("Silent period ended, removing completed session: \(sessionKey)")
+                        return
+                    }
+
+                    print("Silent period ended, starting new interaction: \(sessionKey)")
+                    session.toolHistory.removeAll()
+                }
+            }
+
+            // 判断是否是新的一轮交互（从 waiting 状态恢复）
+            // 注意：completed 状态的检测已经在上面的静默期逻辑中处理了
+            let isNewInteraction = previousStatus == .waiting && timeSinceLastUpdate > 1
+
+            // 如果是 waiting 状态且时间很短（< 1秒），可能是预测操作，忽略
+            if previousStatus == .waiting && timeSinceLastUpdate < 1 {
+                print("Ignoring speculative PreToolUse for waiting session: \(sessionKey)")
+                return
+            }
+
+            // 如果是新的交互，重置会话状态
+            if isNewInteraction {
+                print("New interaction detected for \(sessionKey), resetting session")
+                session.toolHistory.removeAll()
+            }
+
             session.status = mapToolToStatus(tool)
             session.currentAction = formatAction(tool, message.data.toolInput)
             session.metadata = formatMetadata(tool, message.data.toolInput)
@@ -221,9 +270,14 @@ class SessionManager: ObservableObject {
                     playNotificationSound(.attention)
                 }
             } else {
+                // 一轮交互完成 - 显示完成状态，并记录 Stop 时间
                 session.status = .completed
                 session.currentAction = "Task completed"
                 session.metadata = ""
+
+                // 记录 Stop 时间，用于过滤后续的预测操作
+                sessionStopTimes[sessionKey] = Date()
+                print("Session completed: \(sessionKey), recorded stop time")
 
                 // 任务完成时播放提示音
                 if previousStatus != .completed {
@@ -431,14 +485,51 @@ class SessionManager: ObservableObject {
 
     // MARK: - Session Cleanup
     private func cleanupStaleSessions() {
-        let cutoff = Date().addingTimeInterval(-60)
-        sessions = sessions.filter { $0.value.lastUpdate > cutoff }
+        let now = Date()
+        var sessionsToRemove: [String] = []
+
+        for (key, session) in sessions {
+            let elapsed = now.timeIntervalSince(session.lastUpdate)
+
+            // 对于已完成/错误状态，5秒后移除（直接消失）
+            if session.status == .completed || session.status == .error {
+                if elapsed > 5 {
+                    sessionsToRemove.append(key)
+                }
+            }
+            // 对于工作状态（reading/writing/thinking），超过60秒无更新则标记为completed
+            else if session.status == .reading || session.status == .writing || session.status == .thinking {
+                if elapsed > 60 {
+                    var updatedSession = session
+                    updatedSession.status = .completed
+                    updatedSession.currentAction = "Task completed"
+                    updatedSession.metadata = ""
+                    updatedSession.lastUpdate = now  // 重置时间，让它显示30秒后消失
+                    sessions[key] = updatedSession
+                    print("Auto-completed stale session: \(key)")
+
+                    // 播放完成提示音
+                    playNotificationSound(.completion)
+                }
+            }
+            // 对于waiting状态，90秒后移除
+            else if session.status == .waiting {
+                if elapsed > 90 {
+                    sessionsToRemove.append(key)
+                }
+            }
+        }
+
+        for key in sessionsToRemove {
+            sessions.removeValue(forKey: key)
+        }
+
         updateActiveSessions()
     }
 
     private func updateActiveSessions() {
         activeSessions = sessions.values
-            .filter { $0.isActive && $0.calculatedOpacity > 0 }  // 过滤掉已完全透明的会话
+            .filter { $0.isActive && $0.isReadyToDisplay && $0.calculatedOpacity > 0 }  // 过滤掉未到显示时间和已完全透明的会话
             .sorted { $0.lastUpdate > $1.lastUpdate }
 
         // 检查是否需要启动/停止 fadeTimer

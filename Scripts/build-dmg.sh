@@ -112,6 +112,7 @@ if command -v create-dmg &> /dev/null; then
 
     create-dmg \
         --volname "$VOLUME_NAME" \
+        --volicon "${PROJECT_DIR}/VolumeIcon.icns" \
         --window-pos 200 120 \
         --window-size 600 400 \
         --icon-size 100 \

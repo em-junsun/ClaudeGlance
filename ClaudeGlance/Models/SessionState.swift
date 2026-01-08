@@ -46,11 +46,26 @@ struct SessionState: Identifiable, Codable {
     var opacity: Double = 1.0
     var isExpanded: Bool = false
 
+    // 延迟显示：新会话需要等待一段时间才显示（过滤快速的预测操作）
+    var displayAfter: Date = Date()
+
     // MARK: - Timeout Constants
     private static let completedTimeout: TimeInterval = 30      // completed/error 状态 30 秒后消失
     private static let waitingTimeout: TimeInterval = 90        // waiting 状态 90 秒后自动视为结束
-    private static let activeTimeout: TimeInterval = 300        // thinking/reading/writing 保持 5 分钟
+    private static let activeTimeout: TimeInterval = 60         // thinking/reading/writing 60秒无更新后消失
     private static let longOperationThreshold: TimeInterval = 30 // 超过 30 秒视为长时间操作
+
+    // 是否已经过了延迟显示时间
+    var isReadyToDisplay: Bool {
+        return Date() >= displayAfter
+    }
+
+    // 简短的 session 标识符（用于区分同一项目的多个终端）
+    var shortId: String {
+        // 取 session id 的前 4 个字符作为标识
+        let prefix = String(id.prefix(4))
+        return "#\(prefix)"
+    }
 
     // 会话是否仍然活跃（是否应该显示）
     var isActive: Bool {
@@ -103,13 +118,9 @@ struct SessionState: Identifiable, Codable {
         return Date().timeIntervalSince(lastUpdate) > 5
     }
 
-    // 计算透明度（完成后 5-10 秒渐隐）
+    // 透明度（不再渐变，直接消失由 SessionManager 处理）
     var calculatedOpacity: Double {
-        guard status == .completed else { return 1.0 }
-        let elapsed = Date().timeIntervalSince(lastUpdate)
-        if elapsed < 5 { return 1.0 }
-        if elapsed > 10 { return 0.0 }
-        return 1.0 - ((elapsed - 5) / 5.0)
+        return 1.0
     }
 
     init(
@@ -122,7 +133,8 @@ struct SessionState: Identifiable, Codable {
         metadata: String = "",
         lastUpdate: Date = Date(),
         toolHistory: [ToolEvent] = [],
-        isExpanded: Bool = false
+        isExpanded: Bool = false,
+        displayAfter: Date = Date()
     ) {
         self.id = id
         self.terminal = terminal
@@ -134,6 +146,7 @@ struct SessionState: Identifiable, Codable {
         self.lastUpdate = lastUpdate
         self.toolHistory = toolHistory
         self.isExpanded = isExpanded
+        self.displayAfter = displayAfter
     }
 
     // CodingKeys to exclude non-persistent properties

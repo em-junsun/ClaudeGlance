@@ -15,6 +15,7 @@ set -e
 # 配置
 GLANCE_SOCKET="/tmp/claude-glance.sock"
 GLANCE_HTTP="http://localhost:19847/api/status"
+PROTOCOL_VERSION=1
 
 # 获取会话标识
 get_session_id() {
@@ -80,6 +81,7 @@ main() {
     local payload
     payload=$(cat <<EOF
 {
+  "protocol_version": $PROTOCOL_VERSION,
   "session_id": "$session_id",
   "terminal": "$terminal_name",
   "project": "$project_name",
