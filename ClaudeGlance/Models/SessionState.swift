@@ -46,21 +46,55 @@ struct SessionState: Identifiable, Codable {
     var opacity: Double = 1.0
     var isExpanded: Bool = false
 
+    // MARK: - Timeout Constants
+    private static let completedTimeout: TimeInterval = 30      // completed/error 状态 30 秒后消失
+    private static let waitingTimeout: TimeInterval = 90        // waiting 状态 90 秒后自动视为结束
+    private static let activeTimeout: TimeInterval = 300        // thinking/reading/writing 保持 5 分钟
+    private static let longOperationThreshold: TimeInterval = 30 // 超过 30 秒视为长时间操作
+
+    // 会话是否仍然活跃（是否应该显示）
     var isActive: Bool {
         let elapsed = Date().timeIntervalSince(lastUpdate)
-        // 已完成或出错的会话，30秒后消失
-        if status == .completed || status == .error {
-            return elapsed < 30
+
+        switch status {
+        case .completed, .error:
+            // 已完成或出错的会话，30秒后消失
+            return elapsed < Self.completedTimeout
+        case .waiting:
+            // waiting 状态 90 秒后消失（假设对话已结束）
+            return elapsed < Self.waitingTimeout
+        case .thinking, .reading, .writing:
+            // 工作状态保持更长时间（Claude 可能在长时间思考）
+            return elapsed < Self.activeTimeout
+        case .idle:
+            return elapsed < Self.completedTimeout
         }
-        // 其他状态（thinking/reading/writing/waiting）保持更长时间（5分钟）
-        // 因为 Claude 可能在长时间思考，没有发送事件
-        return elapsed < 300
     }
 
-    // 是否正在长时间思考（超过30秒未更新但未完成）
-    var isStillThinking: Bool {
+    // 是否应该显示超时提示
+    var hasTimedOut: Bool {
         let elapsed = Date().timeIntervalSince(lastUpdate)
-        return elapsed > 30 && status != .completed && status != .error
+        return elapsed > Self.longOperationThreshold && status != .completed && status != .error
+    }
+
+    // 是否正在长时间思考（thinking/reading/writing 状态超过 30 秒）
+    var isStillThinking: Bool {
+        guard hasTimedOut else { return false }
+        return status == .thinking || status == .reading || status == .writing
+    }
+
+    // 是否在长时间等待用户输入（waiting 状态超过 30 秒）
+    var isStillWaiting: Bool {
+        guard hasTimedOut else { return false }
+        return status == .waiting
+    }
+
+    // waiting 状态是否即将超时（用于显示倒计时或提示）
+    var waitingSecondsRemaining: Int? {
+        guard status == .waiting else { return nil }
+        let elapsed = Date().timeIntervalSince(lastUpdate)
+        let remaining = Self.waitingTimeout - elapsed
+        return remaining > 0 ? Int(remaining) : 0
     }
 
     // 计算会话是否正在消失（完成后 5 秒开始渐隐）

@@ -24,11 +24,16 @@ struct SessionCard: View {
                     .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    // 主标题：当前动作（长时间思考时显示 Still thinking...）
+                    // 主标题：当前动作
                     if session.isStillThinking {
                         Text("Still thinking...")
                             .font(.system(size: 13, weight: .medium))
                             .foregroundColor(.yellow.opacity(0.9))
+                            .lineLimit(1)
+                    } else if session.isStillWaiting {
+                        Text("Waiting for response...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.orange.opacity(0.9))
                             .lineLimit(1)
                     } else {
                         Text(session.currentAction)
@@ -37,13 +42,13 @@ struct SessionCard: View {
                             .lineLimit(1)
                     }
 
-                    // 副标题：项目名 + 元数据
+                    // 副标题：项目名 + 元数据 + 时间信息
                     HStack(spacing: 4) {
                         Text(session.project)
                             .font(.system(size: 11))
                             .foregroundColor(.white.opacity(0.5))
 
-                        if !session.metadata.isEmpty {
+                        if !session.metadata.isEmpty && !session.isStillWaiting {
                             Text("·")
                                 .foregroundColor(.white.opacity(0.3))
                             Text(session.metadata)
@@ -52,13 +57,22 @@ struct SessionCard: View {
                                 .lineLimit(1)
                         }
 
-                        // 长时间思考时显示时间
+                        // 长时间思考时显示已用时间
                         if session.isStillThinking {
                             Text("·")
                                 .foregroundColor(.white.opacity(0.3))
                             Text(formatElapsedTime(session.lastUpdate))
                                 .font(.system(size: 11, design: .monospaced))
                                 .foregroundColor(.yellow.opacity(0.6))
+                        }
+
+                        // 长时间等待时显示剩余时间
+                        if session.isStillWaiting, let remaining = session.waitingSecondsRemaining {
+                            Text("·")
+                                .foregroundColor(.white.opacity(0.3))
+                            Text("auto-hide in \(remaining)s")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.orange.opacity(0.6))
                         }
                     }
                 }
@@ -75,8 +89,8 @@ struct SessionCard: View {
                 // 终端标识
                 TerminalBadge(terminal: session.terminal)
 
-                // 关闭按钮（长时间思考时显示）
-                if session.isStillThinking {
+                // 关闭按钮（长时间思考或等待时显示）
+                if session.isStillThinking || session.isStillWaiting {
                     Button(action: {
                         onDismiss?()
                     }) {

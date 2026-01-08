@@ -257,9 +257,11 @@ class SessionManager: ObservableObject {
             }
         }
 
-        // 检查是否有 "still thinking" 状态的变化（需要刷新 UI 显示时间）
+        // 检查是否有需要更新 UI 的状态
         let hasStillThinking = sessions.values.contains { $0.isStillThinking }
-        if hasStillThinking {
+        let hasStillWaiting = sessions.values.contains { $0.isStillWaiting }
+
+        if hasStillThinking || hasStillWaiting {
             needsUpdate = true
         }
 
@@ -274,7 +276,13 @@ class SessionManager: ObservableObject {
     // MARK: - Fade Timer Management (按需启动/停止)
     private func updateFadeTimerState() {
         let needsFadeTimer = sessions.values.contains { session in
-            session.status == .completed || session.isStillThinking
+            // 需要 fadeTimer 的情况：
+            // 1. completed 状态（渐隐动画）
+            // 2. 长时间 thinking（显示 Still thinking...）
+            // 3. 长时间 waiting（显示倒计时）
+            session.status == .completed ||
+            session.isStillThinking ||
+            session.isStillWaiting
         }
 
         if needsFadeTimer && fadeTimer == nil {
