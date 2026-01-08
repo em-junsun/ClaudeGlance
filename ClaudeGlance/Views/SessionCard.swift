@@ -10,6 +10,7 @@ import SwiftUI
 struct SessionCard: View {
     let session: SessionState
     var onTap: (() -> Void)?
+    var onDismiss: (() -> Void)?  // 手动关闭回调
 
     @State private var animatedStatus: SessionStatus = .idle
 
@@ -22,11 +23,18 @@ struct SessionCard: View {
                     .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    // 主标题：当前动作
-                    Text(session.currentAction)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(.white)
-                        .lineLimit(1)
+                    // 主标题：当前动作（长时间思考时显示 Still thinking...）
+                    if session.isStillThinking {
+                        Text("Still thinking...")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.yellow.opacity(0.9))
+                            .lineLimit(1)
+                    } else {
+                        Text(session.currentAction)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(.white)
+                            .lineLimit(1)
+                    }
 
                     // 副标题：项目名 + 元数据
                     HStack(spacing: 4) {
@@ -42,6 +50,15 @@ struct SessionCard: View {
                                 .foregroundColor(.white.opacity(0.5))
                                 .lineLimit(1)
                         }
+
+                        // 长时间思考时显示时间
+                        if session.isStillThinking {
+                            Text("·")
+                                .foregroundColor(.white.opacity(0.3))
+                            Text(formatElapsedTime(session.lastUpdate))
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.yellow.opacity(0.6))
+                        }
                     }
                 }
 
@@ -56,6 +73,19 @@ struct SessionCard: View {
 
                 // 终端标识
                 TerminalBadge(terminal: session.terminal)
+
+                // 关闭按钮（长时间思考时显示）
+                if session.isStillThinking {
+                    Button(action: {
+                        onDismiss?()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(.white.opacity(0.4))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Dismiss this session")
+                }
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 10)
@@ -85,6 +115,18 @@ struct SessionCard: View {
         }
         .onAppear {
             animatedStatus = session.status
+        }
+    }
+
+    // 格式化经过的时间
+    private func formatElapsedTime(_ since: Date) -> String {
+        let elapsed = Int(Date().timeIntervalSince(since))
+        if elapsed < 60 {
+            return "\(elapsed)s"
+        } else if elapsed < 3600 {
+            return "\(elapsed / 60)m \(elapsed % 60)s"
+        } else {
+            return "\(elapsed / 3600)h \(elapsed % 3600 / 60)m"
         }
     }
 }

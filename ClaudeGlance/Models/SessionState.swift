@@ -47,7 +47,20 @@ struct SessionState: Identifiable, Codable {
     var isExpanded: Bool = false
 
     var isActive: Bool {
-        Date().timeIntervalSince(lastUpdate) < 30
+        let elapsed = Date().timeIntervalSince(lastUpdate)
+        // 已完成或出错的会话，30秒后消失
+        if status == .completed || status == .error {
+            return elapsed < 30
+        }
+        // 其他状态（thinking/reading/writing/waiting）保持更长时间（5分钟）
+        // 因为 Claude 可能在长时间思考，没有发送事件
+        return elapsed < 300
+    }
+
+    // 是否正在长时间思考（超过30秒未更新但未完成）
+    var isStillThinking: Bool {
+        let elapsed = Date().timeIntervalSince(lastUpdate)
+        return elapsed > 30 && status != .completed && status != .error
     }
 
     // 计算会话是否正在消失（完成后 5 秒开始渐隐）

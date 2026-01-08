@@ -179,23 +179,59 @@ class SessionManager: ObservableObject {
             ))
 
         case "Notification":
-            session.status = .waiting
-            session.currentAction = message.data.message ?? "Waiting for input"
-            session.metadata = message.data.notificationType ?? ""
+            let notificationMessage = message.data.message ?? "Waiting for input"
+            let notificationType = message.data.notificationType ?? ""
 
-            // 需要用户交互时播放提示音
-            if previousStatus != .waiting {
-                playNotificationSound(.attention)
+            // 检测是否是错误通知
+            let isError = notificationType.lowercased().contains("error") ||
+                          notificationMessage.lowercased().contains("error") ||
+                          notificationMessage.lowercased().contains("failed") ||
+                          notificationMessage.lowercased().contains("api error")
+
+            if isError {
+                session.status = .error
+                session.currentAction = notificationMessage
+                session.metadata = "Error"
+
+                // 错误时播放提示音
+                if previousStatus != .error {
+                    playNotificationSound(.attention)
+                }
+            } else {
+                session.status = .waiting
+                session.currentAction = notificationMessage
+                session.metadata = notificationType
+
+                // 需要用户交互时播放提示音
+                if previousStatus != .waiting {
+                    playNotificationSound(.attention)
+                }
             }
 
         case "Stop":
-            session.status = .completed
-            session.currentAction = "Task completed"
-            session.metadata = ""
+            // 检查是否是因为错误而停止
+            let stopMessage = message.data.message ?? ""
+            let isError = stopMessage.lowercased().contains("error") ||
+                          stopMessage.lowercased().contains("failed") ||
+                          stopMessage.lowercased().contains("aborted")
 
-            // 任务完成时播放提示音
-            if previousStatus != .completed {
-                playNotificationSound(.completion)
+            if isError {
+                session.status = .error
+                session.currentAction = stopMessage.isEmpty ? "Task failed" : stopMessage
+                session.metadata = "Error"
+
+                if previousStatus != .error {
+                    playNotificationSound(.attention)
+                }
+            } else {
+                session.status = .completed
+                session.currentAction = "Task completed"
+                session.metadata = ""
+
+                // 任务完成时播放提示音
+                if previousStatus != .completed {
+                    playNotificationSound(.completion)
+                }
             }
 
         default:
@@ -214,6 +250,7 @@ class SessionManager: ObservableObject {
         var needsUpdate = false
 
         for (key, session) in sessions {
+            // 更新完成状态的透明度
             if session.status == .completed {
                 let newOpacity = session.calculatedOpacity
                 if sessions[key]?.opacity != newOpacity {
@@ -221,6 +258,12 @@ class SessionManager: ObservableObject {
                     needsUpdate = true
                 }
             }
+        }
+
+        // 检查是否有 "still thinking" 状态的变化（需要刷新 UI 显示时间）
+        let hasStillThinking = sessions.values.contains { $0.isStillThinking }
+        if hasStillThinking {
+            needsUpdate = true
         }
 
         if needsUpdate {
@@ -235,6 +278,13 @@ class SessionManager: ObservableObject {
             sessions[sessionId] = session
             updateActiveSessions()
         }
+    }
+
+    // MARK: - Dismiss Session (手动关闭僵尸会话)
+    func dismissSession(sessionId: String) {
+        sessions.removeValue(forKey: sessionId)
+        updateActiveSessions()
+        print("Dismissed session: \(sessionId)")
     }
 
     // MARK: - Sound Notifications
@@ -362,7 +412,7 @@ class SessionManager: ObservableObject {
 
     private func updateActiveSessions() {
         activeSessions = sessions.values
-            .filter { $0.isActive }
+            .filter { $0.isActive && $0.calculatedOpacity > 0 }  // 过滤掉已完全透明的会话
             .sorted { $0.lastUpdate > $1.lastUpdate }
     }
 

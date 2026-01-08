@@ -160,11 +160,15 @@ struct HUDContentView: View {
             } else {
                 VStack(spacing: 8) {
                     ForEach(sessionManager.activeSessions) { session in
-                        SessionCard(session: session) {
+                        SessionCard(session: session, onTap: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 sessionManager.toggleExpand(sessionId: session.id)
                             }
-                        }
+                        }, onDismiss: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                sessionManager.dismissSession(sessionId: session.id)
+                            }
+                        })
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.95)),
                             removal: .opacity.combined(with: .scale(scale: 0.95))
