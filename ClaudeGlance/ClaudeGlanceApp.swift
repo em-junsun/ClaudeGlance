@@ -179,13 +179,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 class SettingsWindowController: NSWindowController {
     init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 400, height: 250),
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
         )
         window.title = "Claude Glance Settings"
         window.center()
+        window.toolbarStyle = .preference
 
         let hostingView = NSHostingView(rootView: SettingsView())
         window.contentView = hostingView
@@ -200,64 +201,258 @@ class SettingsWindowController: NSWindowController {
 
 // MARK: - Settings View
 struct SettingsView: View {
-    @AppStorage("autoHideIdle") private var autoHideIdle: Bool = true
-    @AppStorage("idleTimeout") private var idleTimeout: Double = 60
+    var body: some View {
+        TabView {
+            GeneralSettingsTab()
+                .tabItem {
+                    Label("General", systemImage: "gear")
+                }
+
+            AppearanceSettingsTab()
+                .tabItem {
+                    Label("Appearance", systemImage: "paintbrush")
+                }
+
+            ConnectionSettingsTab()
+                .tabItem {
+                    Label("Connection", systemImage: "network")
+                }
+
+            AboutSettingsTab()
+                .tabItem {
+                    Label("About", systemImage: "info.circle")
+                }
+        }
+        .frame(width: 480, height: 320)
+    }
+}
+
+// MARK: - General Settings Tab
+struct GeneralSettingsTab: View {
     @AppStorage("soundEnabled") private var soundEnabled: Bool = true
+    @AppStorage("launchAtLogin") private var launchAtLogin: Bool = false
 
     var body: some View {
         Form {
-            Section("Notifications") {
+            Section {
                 Toggle("Enable sound notifications", isOn: $soundEnabled)
-                Text("Plays sound when Claude needs input or completes a task")
+                Text("Play sounds when Claude needs input or completes a task")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            } header: {
+                Label("Notifications", systemImage: "bell")
             }
 
-            Section("Display") {
-                Toggle("Auto-hide when idle", isOn: $autoHideIdle)
-
-                if autoHideIdle {
-                    HStack {
-                        Text("Idle timeout:")
-                        Slider(value: $idleTimeout, in: 10...300, step: 10)
-                        Text("\(Int(idleTimeout))s")
-                            .frame(width: 40)
-                    }
-                }
-            }
-
-            Section("Connection") {
-                HStack {
-                    Text("Unix Socket:")
-                    Text("/tmp/claude-glance.sock")
-                        .foregroundStyle(.secondary)
-                        .font(.system(.body, design: .monospaced))
-                    Spacer()
-                }
-                HStack {
-                    Text("HTTP Port:")
-                    Text("19847")
-                        .foregroundStyle(.secondary)
-                        .font(.system(.body, design: .monospaced))
-                    Spacer()
-                }
-            }
-
-            Section("About") {
-                HStack {
-                    Text("Claude Glance")
-                        .fontWeight(.semibold)
-                    Spacer()
-                    Text("v1.0")
-                        .foregroundStyle(.secondary)
-                }
-                Text("Multi-terminal Claude Code status HUD")
-                    .foregroundStyle(.secondary)
+            Section {
+                Toggle("Launch at login", isOn: $launchAtLogin)
+                Text("Automatically start Claude Glance when you log in")
                     .font(.caption)
+                    .foregroundStyle(.secondary)
+            } header: {
+                Label("Startup", systemImage: "power")
             }
         }
         .formStyle(.grouped)
-        .frame(width: 380, height: 300)
-        .padding(.top, 10)
+        .scrollDisabled(true)
+    }
+}
+
+// MARK: - Appearance Settings Tab
+struct AppearanceSettingsTab: View {
+    @AppStorage("autoHideIdle") private var autoHideIdle: Bool = true
+    @AppStorage("idleTimeout") private var idleTimeout: Double = 60
+    @AppStorage("hudOpacity") private var hudOpacity: Double = 1.0
+    @AppStorage("showToolHistory") private var showToolHistory: Bool = true
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Auto-hide HUD when idle", isOn: $autoHideIdle)
+
+                if autoHideIdle {
+                    HStack {
+                        Text("Idle timeout")
+                        Spacer()
+                        Slider(value: $idleTimeout, in: 30...300, step: 30) {
+                            Text("Timeout")
+                        }
+                        .frame(width: 150)
+                        Text("\(Int(idleTimeout))s")
+                            .foregroundStyle(.secondary)
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
+            } header: {
+                Label("HUD Behavior", systemImage: "rectangle.on.rectangle")
+            }
+
+            Section {
+                HStack {
+                    Text("HUD opacity")
+                    Spacer()
+                    Slider(value: $hudOpacity, in: 0.5...1.0, step: 0.1) {
+                        Text("Opacity")
+                    }
+                    .frame(width: 150)
+                    Text("\(Int(hudOpacity * 100))%")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 40, alignment: .trailing)
+                }
+
+                Toggle("Show tool history in expanded view", isOn: $showToolHistory)
+            } header: {
+                Label("Display", systemImage: "eye")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+}
+
+// MARK: - Connection Settings Tab
+struct ConnectionSettingsTab: View {
+    @State private var socketStatus: String = "Connected"
+    @State private var httpStatus: String = "Listening"
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Unix Socket") {
+                    HStack {
+                        Text("/tmp/claude-glance.sock")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        StatusBadge(status: socketStatus)
+                    }
+                }
+
+                LabeledContent("HTTP Port") {
+                    HStack {
+                        Text("19847")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        StatusBadge(status: httpStatus)
+                    }
+                }
+            } header: {
+                Label("Server Status", systemImage: "server.rack")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Hook Configuration")
+                        .fontWeight(.medium)
+
+                    Text("Add this to your ~/.claude/settings.json hooks section:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Text("~/.claude/hooks/claude-glance-reporter.sh")
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.1))
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    Button("Open Hooks Folder") {
+                        let path = NSString(string: "~/.claude/hooks").expandingTildeInPath
+                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+                    }
+                    .buttonStyle(.link)
+                }
+            } header: {
+                Label("Setup", systemImage: "terminal")
+            }
+        }
+        .formStyle(.grouped)
+        .scrollDisabled(true)
+    }
+}
+
+// MARK: - Status Badge
+struct StatusBadge: View {
+    let status: String
+
+    private var color: Color {
+        switch status.lowercased() {
+        case "connected", "listening":
+            return .green
+        case "disconnected", "error":
+            return .red
+        default:
+            return .orange
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(status)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - About Settings Tab
+struct AboutSettingsTab: View {
+    var body: some View {
+        VStack(spacing: 20) {
+            Spacer()
+
+            // App Icon
+            Image(systemName: "sparkles")
+                .font(.system(size: 64))
+                .foregroundStyle(.purple)
+
+            // App Name & Version
+            VStack(spacing: 4) {
+                Text("Claude Glance")
+                    .font(.title)
+                    .fontWeight(.semibold)
+
+                Text("Version 1.0.0")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Description
+            Text("Multi-terminal Claude Code status HUD")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            Spacer()
+
+            // Links
+            HStack(spacing: 20) {
+                Button("GitHub") {
+                    if let url = URL(string: "https://github.com") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.link)
+
+                Button("Report Issue") {
+                    if let url = URL(string: "https://github.com") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .buttonStyle(.link)
+            }
+
+            // Copyright
+            Text("© 2025 Claude Glance")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding()
     }
 }
