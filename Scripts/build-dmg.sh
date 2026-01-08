@@ -132,7 +132,8 @@ if command -v create-dmg &> /dev/null; then
             "$DMG_NAME"
     fi
 else
-    echo "Using hdiutil (install create-dmg for prettier DMG: brew install create-dmg)..."
+    echo -e "${YELLOW}Note: Install create-dmg for prettier DMG: brew install create-dmg${NC}"
+    echo "Using hdiutil..."
     hdiutil create -volname "$VOLUME_NAME" \
         -srcfolder "$DMG_TEMP_DIR" \
         -ov -format UDZO \
