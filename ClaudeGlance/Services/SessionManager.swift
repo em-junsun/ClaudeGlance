@@ -69,15 +69,12 @@ class SessionManager: ObservableObject {
         // 读取今日统计
         loadTodayStats()
 
-        // 清理过期会话的定时器
-        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        // 清理过期会话的定时器 (优化: 从 5s 改为 10s)
+        cleanupTimer = Timer.scheduledTimer(withTimeInterval: 10, repeats: true) { [weak self] _ in
             self?.cleanupStaleSessions()
         }
 
-        // 渐隐动画定时器（每秒更新一次）
-        fadeTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            self?.updateFadingSessions()
-        }
+        // fadeTimer 按需启动，不在 init 中创建
     }
 
     deinit {
@@ -269,6 +266,27 @@ class SessionManager: ObservableObject {
         if needsUpdate {
             updateActiveSessions()
         }
+
+        // 检查是否还需要继续运行 fadeTimer
+        updateFadeTimerState()
+    }
+
+    // MARK: - Fade Timer Management (按需启动/停止)
+    private func updateFadeTimerState() {
+        let needsFadeTimer = sessions.values.contains { session in
+            session.status == .completed || session.isStillThinking
+        }
+
+        if needsFadeTimer && fadeTimer == nil {
+            // 需要但没有运行，启动定时器
+            fadeTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+                self?.updateFadingSessions()
+            }
+        } else if !needsFadeTimer && fadeTimer != nil {
+            // 不需要但正在运行，停止定时器
+            fadeTimer?.invalidate()
+            fadeTimer = nil
+        }
     }
 
     // MARK: - Toggle Expand
@@ -414,6 +432,9 @@ class SessionManager: ObservableObject {
         activeSessions = sessions.values
             .filter { $0.isActive && $0.calculatedOpacity > 0 }  // 过滤掉已完全透明的会话
             .sorted { $0.lastUpdate > $1.lastUpdate }
+
+        // 检查是否需要启动/停止 fadeTimer
+        updateFadeTimerState()
     }
 
     // MARK: - Debug

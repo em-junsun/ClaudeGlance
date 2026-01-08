@@ -10,6 +10,8 @@ import SwiftUI
 
 struct PixelSpinner: View {
     let status: SessionStatus
+    var isAnimating: Bool = true  // 外部控制动画开关
+
     private let gridSize = 4
     private let pixelGap: CGFloat = 2
 
@@ -39,23 +41,36 @@ struct PixelSpinner: View {
     }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: animationInterval)) { timeline in
-            Canvas { context, size in
-                let pixelSize = (size.width - CGFloat(gridSize - 1) * pixelGap) / CGFloat(gridSize)
-
-                for row in 0..<gridSize {
-                    for col in 0..<gridSize {
-                        let opacity = calculateOpacity(row: row, col: col, date: timeline.date)
-
-                        let x = CGFloat(col) * (pixelSize + pixelGap)
-                        let y = CGFloat(row) * (pixelSize + pixelGap)
-
-                        let rect = CGRect(x: x, y: y, width: pixelSize, height: pixelSize)
-                        let path = RoundedRectangle(cornerRadius: 2).path(in: rect)
-
-                        context.fill(path, with: .color(baseColor.opacity(opacity)))
+        Group {
+            if isAnimating {
+                TimelineView(.animation(minimumInterval: animationInterval)) { timeline in
+                    Canvas { context, size in
+                        drawPixels(context: context, size: size, date: timeline.date)
                     }
                 }
+            } else {
+                // 静态状态 - 显示固定帧，不消耗 CPU
+                Canvas { context, size in
+                    drawPixels(context: context, size: size, date: Date())
+                }
+            }
+        }
+    }
+
+    private func drawPixels(context: GraphicsContext, size: CGSize, date: Date) {
+        let pixelSize = (size.width - CGFloat(gridSize - 1) * pixelGap) / CGFloat(gridSize)
+
+        for row in 0..<gridSize {
+            for col in 0..<gridSize {
+                let opacity = calculateOpacity(row: row, col: col, date: date)
+
+                let x = CGFloat(col) * (pixelSize + pixelGap)
+                let y = CGFloat(row) * (pixelSize + pixelGap)
+
+                let rect = CGRect(x: x, y: y, width: pixelSize, height: pixelSize)
+                let path = RoundedRectangle(cornerRadius: 2).path(in: rect)
+
+                context.fill(path, with: .color(baseColor.opacity(opacity)))
             }
         }
     }
@@ -63,15 +78,15 @@ struct PixelSpinner: View {
     private var animationInterval: Double {
         switch status {
         case .thinking:
-            return 0.06
+            return 0.1    // 优化: 从 0.06 改为 0.1 (10 FPS)
         case .reading, .writing:
-            return 0.1
+            return 0.15   // 优化: 从 0.1 改为 0.15
         case .waiting:
-            return 0.15
+            return 0.2    // 优化: 从 0.15 改为 0.2
         case .completed, .error:
-            return 0.5
+            return 1.0    // 优化: 从 0.5 改为 1.0 (静态图案)
         case .idle:
-            return 0.2
+            return 0.3    // 优化: 从 0.2 改为 0.3
         }
     }
 

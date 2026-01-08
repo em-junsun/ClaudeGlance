@@ -19,6 +19,9 @@ class HUDWindowController: NSWindowController {
     private var sessionManager: SessionManager
     private var cancellables = Set<AnyCancellable>()
 
+    // 窗口可见性状态 - 用于控制动画
+    private let windowVisibility = WindowVisibility()
+
     init(sessionManager: SessionManager) {
         self.sessionManager = sessionManager
 
@@ -36,6 +39,7 @@ class HUDWindowController: NSWindowController {
         setupContentView()
         positionWindow()
         observeSessionChanges()
+        observeWindowVisibility()
     }
 
     required init?(coder: NSCoder) {
@@ -68,7 +72,7 @@ class HUDWindowController: NSWindowController {
     }
 
     private func setupContentView() {
-        let hudView = HUDContentView(sessionManager: sessionManager)
+        let hudView = HUDContentView(sessionManager: sessionManager, windowVisibility: windowVisibility)
         let hostingView = NSHostingView(rootView: hudView)
         window?.contentView = hostingView
     }
@@ -139,11 +143,38 @@ class HUDWindowController: NSWindowController {
         UserDefaults.standard.set(window.frame.origin.x, forKey: "hudPositionX")
         UserDefaults.standard.set(window.frame.origin.y, forKey: "hudPositionY")
     }
+
+    // MARK: - Window Visibility
+    private func observeWindowVisibility() {
+        guard let window = window else { return }
+
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updateWindowVisibility()
+        }
+
+        // 初始状态
+        updateWindowVisibility()
+    }
+
+    private func updateWindowVisibility() {
+        guard let window = window else { return }
+        windowVisibility.isVisible = window.occlusionState.contains(.visible) && window.isVisible
+    }
+}
+
+// MARK: - Window Visibility Observable
+class WindowVisibility: ObservableObject {
+    @Published var isVisible: Bool = true
 }
 
 // MARK: - HUD Content View
 struct HUDContentView: View {
     @ObservedObject var sessionManager: SessionManager
+    @ObservedObject var windowVisibility: WindowVisibility
 
     var body: some View {
         ZStack {
@@ -156,19 +187,24 @@ struct HUDContentView: View {
 
             // 内容
             if sessionManager.activeSessions.isEmpty {
-                IdleDot()
+                IdleDot(isAnimating: windowVisibility.isVisible)
             } else {
                 VStack(spacing: 8) {
                     ForEach(sessionManager.activeSessions) { session in
-                        SessionCard(session: session, onTap: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                sessionManager.toggleExpand(sessionId: session.id)
+                        SessionCard(
+                            session: session,
+                            isAnimating: windowVisibility.isVisible,
+                            onTap: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    sessionManager.toggleExpand(sessionId: session.id)
+                                }
+                            },
+                            onDismiss: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    sessionManager.dismissSession(sessionId: session.id)
+                                }
                             }
-                        }, onDismiss: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                sessionManager.dismissSession(sessionId: session.id)
-                            }
-                        })
+                        )
                         .transition(.asymmetric(
                             insertion: .opacity.combined(with: .scale(scale: 0.95)),
                             removal: .opacity.combined(with: .scale(scale: 0.95))
@@ -204,6 +240,7 @@ struct VisualEffectBlur: NSViewRepresentable {
 
 // MARK: - Idle Dot
 struct IdleDot: View {
+    var isAnimating: Bool = true
     @State private var pulse = false
 
     var body: some View {
@@ -218,7 +255,15 @@ struct IdleDot: View {
             )
             .frame(width: 24, height: 24)
             .scaleEffect(pulse ? 1.1 : 1.0)
-            .animation(.easeInOut(duration: 2).repeatForever(autoreverses: true), value: pulse)
-            .onAppear { pulse = true }
+            .animation(
+                isAnimating
+                    ? .easeInOut(duration: 2.5).repeatForever(autoreverses: true)
+                    : .default,
+                value: pulse
+            )
+            .onAppear { pulse = isAnimating }
+            .onChange(of: isAnimating) { _, newValue in
+                pulse = newValue
+            }
     }
 }

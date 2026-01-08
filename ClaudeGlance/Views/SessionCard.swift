@@ -9,6 +9,7 @@ import SwiftUI
 
 struct SessionCard: View {
     let session: SessionState
+    var isAnimating: Bool = true  // 控制动画开关
     var onTap: (() -> Void)?
     var onDismiss: (() -> Void)?  // 手动关闭回调
 
@@ -19,7 +20,7 @@ struct SessionCard: View {
             // 主卡片内容
             HStack(spacing: 12) {
                 // 像素动画图标
-                PixelSpinner(status: animatedStatus)
+                PixelSpinner(status: animatedStatus, isAnimating: isAnimating)
                     .frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
