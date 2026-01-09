@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MJYKIM99/ClaudeGlance/releases"><img src="https://img.shields.io/github/v/release/MJYKIM99/ClaudeGlance?style=flat-square&color=blue" alt="Release"></a>
-  <a href="https://github.com/MJYKIM99/ClaudeGlance/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MJYKIM99/ClaudeGlance?style=flat-square" alt="License"></a>
+  <a href="https://github.com/MJYKIM99/ClaudeGlance/releases"><img src="https://img.shields.io/github/v/release/MJYKIM99/ClaudeGlance?style=flat-square&color=blue&cacheSeconds=60" alt="Release"></a>
+  <a href="https://github.com/MJYKIM99/ClaudeGlance/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MJYKIM99/ClaudeGlance?style=flat-square&cacheSeconds=3600" alt="License"></a>
   <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/swift-5.9-orange?style=flat-square" alt="Swift">
 </p>
