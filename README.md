@@ -9,6 +9,13 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/MJYKIM99/ClaudeGlance/releases"><img src="https://img.shields.io/github/v/release/MJYKIM99/ClaudeGlance?style=flat-square&color=blue" alt="Release"></a>
+  <a href="https://github.com/MJYKIM99/ClaudeGlance/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MJYKIM99/ClaudeGlance?style=flat-square" alt="License"></a>
+  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/swift-5.9-orange?style=flat-square" alt="Swift">
+</p>
+
+<p align="center">
   <a href="#features">Features</a> •
   <a href="#installation">Installation</a> •
   <a href="#usage">Usage</a> •
@@ -18,6 +25,10 @@
 
 <p align="center">
   <code>🔒 Local-only</code> • <code>📡 No telemetry</code> • <code>🚫 No data upload</code>
+</p>
+
+<p align="center">
+  <img src="demo.gif" width="400" alt="Claude Glance Demo">
 </p>
 
 ---
@@ -49,7 +60,7 @@ A native macOS application that provides a real-time floating HUD (Heads-Up Disp
 
 ### Option 1: Download DMG (Recommended)
 
-1. Download the latest `ClaudeGlance.dmg` from [Releases](https://github.com/0xkiw1/ClaudeGlance/releases)
+1. Download the latest `ClaudeGlance.dmg` from [Releases](https://github.com/MJYKIM99/ClaudeGlance/releases)
 2. Open the DMG and drag `ClaudeGlance.app` to Applications
 3. Run the install script to configure hooks:
 
@@ -61,7 +72,7 @@ cd /Applications/ClaudeGlance.app/Contents/Resources/Scripts
 ### Option 2: Build from Source
 
 ```bash
-git clone https://github.com/0xkiw1/ClaudeGlance.git
+git clone https://github.com/MJYKIM99/ClaudeGlance.git
 cd ClaudeGlance
 xcodebuild -scheme ClaudeGlance -configuration Release
 ```
@@ -276,7 +287,7 @@ Created by **Kim**
 
 ### 方式一：下载 DMG（推荐）
 
-1. 从 [Releases](https://github.com/0xkiw1/ClaudeGlance/releases) 下载最新的 `ClaudeGlance.dmg`
+1. 从 [Releases](https://github.com/MJYKIM99/ClaudeGlance/releases) 下载最新的 `ClaudeGlance.dmg`
 2. 打开 DMG，将 `ClaudeGlance.app` 拖到"应用程序"文件夹
 3. 运行安装脚本配置 hooks：
 
@@ -288,7 +299,7 @@ cd /Applications/ClaudeGlance.app/Contents/Resources/Scripts
 ### 方式二：从源码构建
 
 ```bash
-git clone https://github.com/0xkiw1/ClaudeGlance.git
+git clone https://github.com/MJYKIM99/ClaudeGlance.git
 cd ClaudeGlance
 xcodebuild -scheme ClaudeGlance -configuration Release
 ```
