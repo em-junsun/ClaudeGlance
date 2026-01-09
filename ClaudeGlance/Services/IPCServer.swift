@@ -2,7 +2,7 @@
 //  IPCServer.swift
 //  ClaudeGlance
 //
-//  Unix Socket + HTTP IPC 服务器 (带自动重连)
+//  Unix Socket + HTTP IPC 服务器 (带自动重连和端口冲突处理)
 //
 
 import Foundation
@@ -14,25 +14,45 @@ class IPCServer: ObservableObject {
     private var unixSocketHandle: FileHandle?
     private var unixSocketSource: DispatchSourceRead?
     private let socketPath = "/tmp/claude-glance.sock"
-    private let httpPort: UInt16 = 19847
+
+    // 端口配置：主端口和备用端口范围
+    private let primaryPort: UInt16 = 19847
+    private let portRange: ClosedRange<UInt16> = 19847...19857
+    @Published var currentPort: UInt16 = 19847
 
     @Published var isRunning = false
     @Published var connectionStatus: ConnectionStatus = .disconnected
+    @Published var statusMessage: String = ""
 
     private var reconnectTimer: Timer?
     private var serverFd: Int32 = -1
 
-    enum ConnectionStatus {
+    enum ConnectionStatus: Equatable {
         case disconnected
         case connecting
         case connected
         case error(String)
+
+        var displayName: String {
+            switch self {
+            case .disconnected: return "Disconnected"
+            case .connecting: return "Connecting..."
+            case .connected: return "Connected"
+            case .error(let msg): return "Error: \(msg)"
+            }
+        }
+
+        var isHealthy: Bool {
+            if case .connected = self { return true }
+            return false
+        }
     }
 
     var onMessage: ((Data) -> Void)?
 
     func start() throws {
         connectionStatus = .connecting
+        statusMessage = "Starting server..."
 
         // 清理旧的 socket 文件
         try? FileManager.default.removeItem(atPath: socketPath)
@@ -40,12 +60,13 @@ class IPCServer: ObservableObject {
         // 启动 Unix Socket 监听
         startUnixSocketServer()
 
-        // 启动 HTTP 监听
-        try startHTTPListener()
+        // 启动 HTTP 监听（带端口冲突重试）
+        try startHTTPListenerWithRetry()
 
         isRunning = true
         connectionStatus = .connected
-        print("IPC Server started")
+        statusMessage = "Server running on port \(currentPort)"
+        print("IPC Server started on port \(currentPort)")
 
         // 启动健康检查定时器
         startHealthCheck()
@@ -209,29 +230,80 @@ class IPCServer: ObservableObject {
     }
 
     // MARK: - HTTP Server
-    private func startHTTPListener() throws {
+    private func startHTTPListenerWithRetry() throws {
+        var lastError: Error?
+
+        for port in portRange {
+            do {
+                try startHTTPListener(on: port)
+                currentPort = port
+                if port != primaryPort {
+                    print("Using fallback port \(port) (primary port \(primaryPort) was unavailable)")
+                    statusMessage = "Using port \(port) (fallback)"
+                }
+                return
+            } catch {
+                lastError = error
+                print("Port \(port) unavailable: \(error.localizedDescription)")
+                continue
+            }
+        }
+
+        // 所有端口都失败
+        let errorMsg = "All ports \(portRange.lowerBound)-\(portRange.upperBound) unavailable"
+        connectionStatus = .error(errorMsg)
+        statusMessage = errorMsg
+        throw lastError ?? NSError(domain: "IPCServer", code: -1, userInfo: [NSLocalizedDescriptionKey: errorMsg])
+    }
+
+    private func startHTTPListener(on port: UInt16) throws {
         let params = NWParameters.tcp
         params.allowLocalEndpointReuse = true
 
-        httpListener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: httpPort)!)
+        let listener = try NWListener(using: params, on: NWEndpoint.Port(rawValue: port)!)
 
-        httpListener?.newConnectionHandler = { [weak self] connection in
-            self?.handleHTTPConnection(connection)
-        }
+        // 使用信号量等待监听器状态
+        let semaphore = DispatchSemaphore(value: 0)
+        var startError: Error?
 
-        httpListener?.stateUpdateHandler = { [weak self] state in
+        listener.stateUpdateHandler = { [weak self] state in
             switch state {
             case .ready:
-                print("HTTP server listening on port \(self?.httpPort ?? 0)")
+                print("HTTP server listening on port \(port)")
+                semaphore.signal()
             case .failed(let error):
-                print("HTTP listener failed: \(error)")
-                self?.connectionStatus = .error("HTTP: \(error.localizedDescription)")
+                print("HTTP listener failed on port \(port): \(error)")
+                startError = error
+                semaphore.signal()
+            case .waiting(let error):
+                print("HTTP listener waiting on port \(port): \(error)")
+                startError = error
+                semaphore.signal()
             default:
                 break
             }
         }
 
-        httpListener?.start(queue: .global(qos: .userInitiated))
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.handleHTTPConnection(connection)
+        }
+
+        listener.start(queue: .global(qos: .userInitiated))
+
+        // 等待最多 2 秒
+        let result = semaphore.wait(timeout: .now() + 2)
+
+        if result == .timedOut {
+            listener.cancel()
+            throw NSError(domain: "IPCServer", code: -1, userInfo: [NSLocalizedDescriptionKey: "Listener start timeout"])
+        }
+
+        if let error = startError {
+            listener.cancel()
+            throw error
+        }
+
+        httpListener = listener
     }
 
     private func handleHTTPConnection(_ connection: NWConnection) {

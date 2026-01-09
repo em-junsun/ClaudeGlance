@@ -164,7 +164,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() {
         if settingsWindowController == nil {
-            settingsWindowController = SettingsWindowController()
+            settingsWindowController = SettingsWindowController(ipcServer: ipcServer)
         }
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
@@ -177,7 +177,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
 // MARK: - Settings Window Controller
 class SettingsWindowController: NSWindowController {
-    init() {
+    private var ipcServer: IPCServer?
+
+    init(ipcServer: IPCServer? = nil) {
+        self.ipcServer = ipcServer
+
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [.titled, .closable],
@@ -188,7 +192,7 @@ class SettingsWindowController: NSWindowController {
         window.center()
         window.toolbarStyle = .preference
 
-        let hostingView = NSHostingView(rootView: SettingsView())
+        let hostingView = NSHostingView(rootView: SettingsView(ipcServer: ipcServer))
         window.contentView = hostingView
 
         super.init(window: window)
@@ -201,6 +205,8 @@ class SettingsWindowController: NSWindowController {
 
 // MARK: - Settings View
 struct SettingsView: View {
+    var ipcServer: IPCServer?
+
     var body: some View {
         TabView {
             GeneralSettingsTab()
@@ -213,7 +219,7 @@ struct SettingsView: View {
                     Label("Appearance", systemImage: "paintbrush")
                 }
 
-            ConnectionSettingsTab()
+            ConnectionSettingsTab(ipcServer: ipcServer)
                 .tabItem {
                     Label("Connection", systemImage: "network")
                 }
@@ -311,8 +317,38 @@ struct AppearanceSettingsTab: View {
 
 // MARK: - Connection Settings Tab
 struct ConnectionSettingsTab: View {
-    @State private var socketStatus: String = "Connected"
-    @State private var httpStatus: String = "Listening"
+    @ObservedObject var ipcServer: IPCServer
+    @State private var hookStatus: HookStatus = .unknown
+    @State private var isCheckingHook = false
+
+    init(ipcServer: IPCServer?) {
+        // 使用默认的 IPCServer 如果没有提供
+        self._ipcServer = ObservedObject(wrappedValue: ipcServer ?? IPCServer())
+    }
+
+    enum HookStatus {
+        case unknown
+        case installed
+        case notInstalled
+        case misconfigured(String)
+
+        var displayName: String {
+            switch self {
+            case .unknown: return "Unknown"
+            case .installed: return "Installed"
+            case .notInstalled: return "Not Installed"
+            case .misconfigured(let msg): return "Error: \(msg)"
+            }
+        }
+
+        var color: Color {
+            switch self {
+            case .unknown: return .orange
+            case .installed: return .green
+            case .notInstalled, .misconfigured: return .red
+            }
+        }
+    }
 
     var body: some View {
         Form {
@@ -323,51 +359,392 @@ struct ConnectionSettingsTab: View {
                             .font(.system(.body, design: .monospaced))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        StatusBadge(status: socketStatus)
+                        StatusBadge(status: ipcServer.connectionStatus.isHealthy ? "Connected" : "Disconnected")
                     }
                 }
 
                 LabeledContent("HTTP Port") {
                     HStack {
-                        Text("19847")
+                        Text("\(ipcServer.currentPort)")
                             .font(.system(.body, design: .monospaced))
                             .foregroundStyle(.secondary)
                         Spacer()
-                        StatusBadge(status: httpStatus)
+                        StatusBadge(status: ipcServer.connectionStatus.isHealthy ? "Listening" : "Error")
                     }
+                }
+
+                if !ipcServer.statusMessage.isEmpty {
+                    Text(ipcServer.statusMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             } header: {
                 Label("Server Status", systemImage: "server.rack")
             }
 
             Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Hook Configuration")
-                        .fontWeight(.medium)
-
-                    Text("Add this to your ~/.claude/settings.json hooks section:")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Text("~/.claude/hooks/claude-glance-reporter.sh")
-                        .font(.system(.caption, design: .monospaced))
-                        .padding(8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.secondary.opacity(0.1))
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                    Button("Open Hooks Folder") {
-                        let path = NSString(string: "~/.claude/hooks").expandingTildeInPath
-                        NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+                LabeledContent("Hook Script") {
+                    HStack {
+                        Text("claude-glance-reporter.sh")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        if isCheckingHook {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                        } else {
+                            HookStatusBadge(status: hookStatus)
+                        }
                     }
-                    .buttonStyle(.link)
+                }
+
+                LabeledContent("Settings Config") {
+                    HStack {
+                        Text("~/.claude/settings.json")
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Check") {
+                            checkHookStatus()
+                        }
+                        .buttonStyle(.borderless)
+                    }
                 }
             } header: {
-                Label("Setup", systemImage: "terminal")
+                Label("Hook Status", systemImage: "terminal")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Button("Install / Update Hook") {
+                            installHook()
+                        }
+                        .buttonStyle(.borderedProminent)
+
+                        Button("Open Hooks Folder") {
+                            let path = NSString(string: "~/.claude/hooks").expandingTildeInPath
+                            // 如果目录不存在，先创建它
+                            try? FileManager.default.createDirectory(atPath: path, withIntermediateDirectories: true)
+                            NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: path)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
+                    if case .misconfigured(let msg) = hookStatus {
+                        Text(msg)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                }
+            } header: {
+                Label("Actions", systemImage: "wrench.and.screwdriver")
             }
         }
         .formStyle(.grouped)
         .scrollDisabled(true)
+        .onAppear {
+            checkHookStatus()
+        }
+    }
+
+    private func checkHookStatus() {
+        isCheckingHook = true
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let status = HookChecker.checkHookInstallation()
+            DispatchQueue.main.async {
+                self.hookStatus = status
+                self.isCheckingHook = false
+            }
+        }
+    }
+
+    private func installHook() {
+        HookInstaller.install { result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success:
+                    self.hookStatus = .installed
+                case .failure(let error):
+                    self.hookStatus = .misconfigured(error.localizedDescription)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Hook Status Badge
+struct HookStatusBadge: View {
+    let status: ConnectionSettingsTab.HookStatus
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(status.color)
+                .frame(width: 8, height: 8)
+            Text(status.displayName)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+// MARK: - Hook Checker
+struct HookChecker {
+    static func checkHookInstallation() -> ConnectionSettingsTab.HookStatus {
+        let hooksDir = NSString(string: "~/.claude/hooks").expandingTildeInPath
+        let scriptPath = (hooksDir as NSString).appendingPathComponent("claude-glance-reporter.sh")
+        let settingsPath = NSString(string: "~/.claude/settings.json").expandingTildeInPath
+
+        // 1. 检查脚本是否存在
+        guard FileManager.default.fileExists(atPath: scriptPath) else {
+            return .notInstalled
+        }
+
+        // 2. 检查脚本是否可执行
+        guard FileManager.default.isExecutableFile(atPath: scriptPath) else {
+            return .misconfigured("Script not executable")
+        }
+
+        // 3. 检查 settings.json 是否配置了 hooks
+        guard FileManager.default.fileExists(atPath: settingsPath) else {
+            return .misconfigured("settings.json not found")
+        }
+
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: settingsPath))
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let hooks = json["hooks"] as? [String: Any] else {
+                return .misconfigured("No hooks configured in settings.json")
+            }
+
+            // 检查是否配置了 claude-glance-reporter
+            let requiredHooks = ["PreToolUse", "PostToolUse", "Notification", "Stop"]
+            for hookName in requiredHooks {
+                guard let hookArray = hooks[hookName] as? [[String: Any]] else {
+                    return .misconfigured("Missing \(hookName) hook")
+                }
+
+                let hasGlanceHook = hookArray.contains { matcher in
+                    guard let hooksList = matcher["hooks"] as? [[String: Any]] else { return false }
+                    return hooksList.contains { hook in
+                        guard let command = hook["command"] as? String else { return false }
+                        return command.contains("claude-glance-reporter")
+                    }
+                }
+
+                if !hasGlanceHook {
+                    return .misconfigured("Missing \(hookName) hook for claude-glance")
+                }
+            }
+
+            return .installed
+        } catch {
+            return .misconfigured("Failed to read settings: \(error.localizedDescription)")
+        }
+    }
+}
+
+// MARK: - Hook Installer
+struct HookInstaller {
+    static func install(completion: @escaping (Result<Void, Error>) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try performInstallation()
+                completion(.success(()))
+            } catch {
+                completion(.failure(error))
+            }
+        }
+    }
+
+    private static func performInstallation() throws {
+        let hooksDir = NSString(string: "~/.claude/hooks").expandingTildeInPath
+        let scriptPath = (hooksDir as NSString).appendingPathComponent("claude-glance-reporter.sh")
+        let settingsPath = NSString(string: "~/.claude/settings.json").expandingTildeInPath
+
+        // 1. 创建 hooks 目录
+        try FileManager.default.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
+
+        // 2. 写入 reporter 脚本
+        let scriptContent = generateReporterScript()
+        try scriptContent.write(toFile: scriptPath, atomically: true, encoding: .utf8)
+
+        // 3. 设置可执行权限
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptPath)
+
+        // 4. 更新 settings.json
+        try updateSettingsJson(at: settingsPath)
+    }
+
+    private static func generateReporterScript() -> String {
+        return """
+        #!/bin/bash
+        #
+        # claude-glance-reporter.sh
+        # Claude Glance Hook Reporter (Auto-generated)
+        #
+
+        set -e
+
+        GLANCE_SOCKET="/tmp/claude-glance.sock"
+        GLANCE_HTTP="http://localhost:19847/api/status"
+        PROTOCOL_VERSION=1
+
+        get_session_id() {
+            if [[ -n "$CLAUDE_SESSION_ID" ]]; then
+                echo "$CLAUDE_SESSION_ID"
+                return
+            fi
+
+            if command -v md5 &> /dev/null; then
+                tty 2>/dev/null | md5 | head -c 8
+            elif command -v md5sum &> /dev/null; then
+                tty 2>/dev/null | md5sum | head -c 8
+            else
+                echo "session-$$"
+            fi
+        }
+
+        get_terminal_name() {
+            if [[ -n "$TERM_PROGRAM" ]]; then
+                echo "$TERM_PROGRAM"
+            elif [[ -n "$TERMINAL_EMULATOR" ]]; then
+                echo "$TERMINAL_EMULATOR"
+            elif [[ -n "$ITERM_SESSION_ID" ]]; then
+                echo "iTerm2"
+            else
+                echo "Terminal"
+            fi
+        }
+
+        main() {
+            local hook_event="$1"
+            local hook_input
+            hook_input=$(cat)
+
+            if [[ -z "$hook_input" ]]; then
+                hook_input="{}"
+            fi
+
+            local session_id
+            session_id=$(get_session_id)
+
+            local terminal_name
+            terminal_name=$(get_terminal_name)
+
+            local project_name
+            project_name=$(basename "$(pwd)")
+
+            local cwd
+            cwd=$(pwd)
+
+            local timestamp
+            timestamp=$(date +%s%3N 2>/dev/null || date +%s)
+
+            local payload
+            payload=$(cat <<EOF
+        {
+          "protocol_version": $PROTOCOL_VERSION,
+          "session_id": "$session_id",
+          "terminal": "$terminal_name",
+          "project": "$project_name",
+          "cwd": "$cwd",
+          "timestamp": $timestamp,
+          "event": "$hook_event",
+          "data": $hook_input
+        }
+        EOF
+        )
+
+            send_to_hud "$payload"
+        }
+
+        send_to_hud() {
+            local payload="$1"
+
+            if [[ -S "$GLANCE_SOCKET" ]]; then
+                echo "$payload" | nc -U "$GLANCE_SOCKET" 2>/dev/null && return 0
+            fi
+
+            if command -v curl &> /dev/null; then
+                curl -s -X POST "$GLANCE_HTTP" \\
+                    -H "Content-Type: application/json" \\
+                    -d "$payload" \\
+                    --connect-timeout 1 \\
+                    --max-time 2 \\
+                    2>/dev/null || true
+            fi
+        }
+
+        main "$@"
+
+        exit 0
+        """
+    }
+
+    private static func updateSettingsJson(at path: String) throws {
+        let glanceCommand = "claude-glance-reporter.sh"
+        let hookTypes = ["PreToolUse", "PostToolUse", "Notification", "Stop"]
+
+        var settings: [String: Any] = [:]
+
+        // 读取现有配置
+        if FileManager.default.fileExists(atPath: path) {
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            if let existingSettings = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                settings = existingSettings
+            }
+        }
+
+        // 获取或创建 hooks 字典
+        var hooks = settings["hooks"] as? [String: Any] ?? [:]
+
+        // 对每个 hook 类型进行智能合并
+        for hookType in hookTypes {
+            let glanceEntry: [String: Any] = [
+                "matcher": "*",
+                "hooks": [
+                    ["type": "command", "command": "~/.claude/hooks/claude-glance-reporter.sh \(hookType)"]
+                ]
+            ]
+
+            if var existingArray = hooks[hookType] as? [[String: Any]] {
+                // 检查是否已经有 claude-glance-reporter 的配置
+                let glanceIndex = existingArray.firstIndex { matcher in
+                    guard let hooksList = matcher["hooks"] as? [[String: Any]] else { return false }
+                    return hooksList.contains { hook in
+                        guard let command = hook["command"] as? String else { return false }
+                        return command.contains(glanceCommand)
+                    }
+                }
+
+                if let index = glanceIndex {
+                    // 已存在，更新它
+                    existingArray[index] = glanceEntry
+                } else {
+                    // 不存在，追加到数组末尾（不影响用户现有的 hooks）
+                    existingArray.append(glanceEntry)
+                }
+                hooks[hookType] = existingArray
+            } else {
+                // 该 hook 类型不存在，创建新数组
+                hooks[hookType] = [glanceEntry]
+            }
+        }
+
+        settings["hooks"] = hooks
+
+        // 备份原文件
+        if FileManager.default.fileExists(atPath: path) {
+            let backupPath = path + ".backup.\(Int(Date().timeIntervalSince1970))"
+            try? FileManager.default.copyItem(atPath: path, toPath: backupPath)
+        }
+
+        // 写回文件
+        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: URL(fileURLWithPath: path))
     }
 }
 

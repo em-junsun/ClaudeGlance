@@ -40,6 +40,7 @@ class HUDWindowController: NSWindowController {
         positionWindow()
         observeSessionChanges()
         observeWindowVisibility()
+        observeWindowMoved()
     }
 
     required init?(coder: NSCoder) {
@@ -78,21 +79,62 @@ class HUDWindowController: NSWindowController {
     }
 
     private func positionWindow() {
-        guard let window = window, let screen = NSScreen.main else { return }
+        guard let window = window else { return }
 
-        // 从 UserDefaults 读取保存的位置
+        // 从 UserDefaults 读取保存的位置和显示器信息
         let savedX = UserDefaults.standard.double(forKey: "hudPositionX")
         let savedY = UserDefaults.standard.double(forKey: "hudPositionY")
+        let savedScreenHash = UserDefaults.standard.integer(forKey: "hudScreenHash")
 
         if savedX != 0 || savedY != 0 {
-            window.setFrameOrigin(NSPoint(x: savedX, y: savedY))
+            // 尝试找到保存时的显示器
+            let targetScreen = findScreen(withHash: savedScreenHash) ?? NSScreen.main
+
+            if let screen = targetScreen {
+                // 验证位置是否在目标显示器的可见区域内
+                let screenFrame = screen.visibleFrame
+                var position = NSPoint(x: savedX, y: savedY)
+
+                // 如果保存的位置不在当前显示器范围内，调整到显示器边界内
+                if !screenFrame.contains(NSRect(origin: position, size: window.frame.size)) {
+                    // 调整 X 坐标
+                    position.x = max(screenFrame.minX, min(position.x, screenFrame.maxX - window.frame.width))
+                    // 调整 Y 坐标
+                    position.y = max(screenFrame.minY, min(position.y, screenFrame.maxY - window.frame.height))
+                }
+
+                window.setFrameOrigin(position)
+            } else {
+                // 如果找不到保存的显示器，使用主显示器的默认位置
+                positionWindowOnScreen(NSScreen.main, window: window)
+            }
         } else {
-            // 默认位置：屏幕顶部中央
-            let screenFrame = screen.visibleFrame
-            let x = screenFrame.midX - window.frame.width / 2
-            let y = screenFrame.maxY - window.frame.height - 20
-            window.setFrameOrigin(NSPoint(x: x, y: y))
+            // 没有保存的位置，使用主显示器的默认位置
+            positionWindowOnScreen(NSScreen.main, window: window)
         }
+    }
+
+    private func positionWindowOnScreen(_ screen: NSScreen?, window: NSWindow) {
+        guard let screen = screen else { return }
+
+        let screenFrame = screen.visibleFrame
+        let x = screenFrame.midX - window.frame.width / 2
+        let y = screenFrame.maxY - window.frame.height - 20
+        window.setFrameOrigin(NSPoint(x: x, y: y))
+    }
+
+    private func findScreen(withHash hash: Int) -> NSScreen? {
+        guard hash != 0 else { return nil }
+        return NSScreen.screens.first { screenHash(for: $0) == hash }
+    }
+
+    private func screenHash(for screen: NSScreen) -> Int {
+        // 使用显示器的 deviceDescription 中的 NSScreenNumber 作为唯一标识
+        if let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber {
+            return screenNumber.intValue
+        }
+        // 备用方案：使用显示器框架的哈希值
+        return screen.frame.hashValue
     }
 
     // MARK: - Session Observation
@@ -140,8 +182,28 @@ class HUDWindowController: NSWindowController {
     // MARK: - Save Position
     func savePosition() {
         guard let window = window else { return }
+
         UserDefaults.standard.set(window.frame.origin.x, forKey: "hudPositionX")
         UserDefaults.standard.set(window.frame.origin.y, forKey: "hudPositionY")
+
+        // 保存窗口所在的显示器
+        if let screen = window.screen ?? NSScreen.main {
+            let hash = screenHash(for: screen)
+            UserDefaults.standard.set(hash, forKey: "hudScreenHash")
+        }
+    }
+
+    // MARK: - Window Move Observer
+    private func observeWindowMoved() {
+        guard let window = window else { return }
+
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: window,
+            queue: .main
+        ) { [weak self] _ in
+            self?.savePosition()
+        }
     }
 
     // MARK: - Window Visibility
