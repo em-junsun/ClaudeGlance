@@ -33,6 +33,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
         setupHUDWindow()
+
+        // 自动安装 hook 脚本（在启动服务之前）
+        autoInstallHookIfNeeded()
+
         startIPCServer()
 
         // 隐藏 Dock 图标
@@ -44,16 +48,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return false
     }
 
+    // 退出时清理资源
+    func applicationWillTerminate(_ notification: Notification) {
+        ipcServer.stop()
+    }
+
     // MARK: - Menu Bar
     private func setupMenuBar() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
         if let button = statusItem?.button {
-            button.image = NSImage(systemSymbolName: "sparkles", accessibilityDescription: "Claude Glance")
+            button.image = createGridIcon()
             button.image?.isTemplate = true
         }
 
         let menu = NSMenu()
+
+        // 服务状态（新增）
+        let serviceStatusItem = NSMenuItem(title: "Service: Checking...", action: nil, keyEquivalent: "")
+        serviceStatusItem.tag = 200
+        serviceStatusItem.isEnabled = false
+        menu.addItem(serviceStatusItem)
+
+        menu.addItem(NSMenuItem.separator())
 
         menu.addItem(NSMenuItem(title: "Show HUD", action: #selector(showHUD), keyEquivalent: "h"))
         menu.addItem(NSMenuItem(title: "Hide HUD", action: #selector(hideHUD), keyEquivalent: ""))
@@ -81,11 +98,24 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(sessionsItem)
 
         menu.addItem(NSMenuItem.separator())
+
+        // 服务操作（新增）
+        menu.addItem(NSMenuItem(title: "Restart Service", action: #selector(restartService), keyEquivalent: "r"))
+        menu.addItem(NSMenuItem.separator())
+
         menu.addItem(NSMenuItem(title: "Settings...", action: #selector(openSettings), keyEquivalent: ","))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q"))
 
         statusItem?.menu = menu
+
+        // 监听服务状态变化（新增）
+        ipcServer.$connectionStatus
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] status in
+                self?.updateServiceStatus(status)
+            }
+            .store(in: &cancellables)
 
         // 监听会话变化更新菜单
         sessionManager.$activeSessions
@@ -104,18 +134,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .store(in: &cancellables)
     }
 
+    // MARK: - Custom Grid Icon
+    private func createGridIcon() -> NSImage {
+        let size: CGFloat = 18
+        let image = NSImage(size: NSSize(width: size, height: size))
+
+        image.lockFocus()
+
+        NSColor.black.setFill()
+
+        let dotSize: CGFloat = 3.0
+        let spacing: CGFloat = 2.0
+        let totalGridSize = dotSize * 3 + spacing * 2
+        let startX = (size - totalGridSize) / 2
+        let startY = (size - totalGridSize) / 2
+
+        // 3x3 grid
+        for row in 0..<3 {
+            for col in 0..<3 {
+                let x = startX + CGFloat(col) * (dotSize + spacing)
+                let y = startY + CGFloat(row) * (dotSize + spacing)
+
+                let dotRect = NSRect(x: x, y: y, width: dotSize, height: dotSize)
+                let dotPath = NSBezierPath(ovalIn: dotRect)
+                dotPath.fill()
+            }
+        }
+
+        image.unlockFocus()
+        image.isTemplate = true
+        return image
+    }
+
+    private func updateServiceStatus(_ status: IPCServer.ConnectionStatus) {
+        guard let menu = statusItem?.menu,
+              let item = menu.item(withTag: 200) else { return }
+
+        let title: String
+        switch status {
+        case .disconnected:
+            title = "Service: Not Running"
+        case .connecting:
+            title = "Service: Starting..."
+        case .connected:
+            title = "Service: Running"
+        case .error:
+            title = "Service: Error"
+        }
+
+        item.title = title
+
+        // 更新菜单栏图标状态（使用九宫格图标，错误时显示警告）
+        if let button = statusItem?.button {
+            if status.isHealthy {
+                button.image = createGridIcon()
+                button.image?.isTemplate = true
+            } else {
+                button.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: title)
+                button.image?.isTemplate = false
+            }
+        }
+    }
+
     private func updateMenuSessionCount(_ count: Int) {
         if let menu = statusItem?.menu,
            let item = menu.item(withTag: 100) {
             item.title = "Active Sessions: \(count)"
         }
 
-        // 更新菜单栏图标
-        if let button = statusItem?.button {
-            let imageName = count > 0 ? "sparkles" : "sparkle"
-            button.image = NSImage(systemSymbolName: imageName, accessibilityDescription: "Claude Glance")
-            button.image?.isTemplate = true
-        }
+        // 不再改变图标，始终使用九宫格图标
     }
 
     private func updateMenuStats(_ stats: TodayStats) {
@@ -149,6 +236,120 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    // MARK: - Auto Install Hook
+    private func autoInstallHookIfNeeded() {
+        // 从 Bundle 中读取脚本
+        guard let bundleScriptURL = Bundle.main.url(
+            forResource: "claude-glance-reporter",
+            withExtension: "sh",
+            subdirectory: "Scripts"
+        ) else {
+            print("Hook script not found in bundle, skipping auto-install")
+            return
+        }
+
+        let hooksDir = NSString(string: "~/.claude/hooks").expandingTildeInPath
+        let targetPath = (hooksDir as NSString).appendingPathComponent("claude-glance-reporter.sh")
+
+        do {
+            // 创建 hooks 目录
+            try FileManager.default.createDirectory(atPath: hooksDir, withIntermediateDirectories: true)
+
+            // 读取 Bundle 中的脚本内容
+            let scriptContent = try String(contentsOf: bundleScriptURL, encoding: .utf8)
+
+            // 检查是否需要更新（比较内容）
+            let needsUpdate: Bool
+            if FileManager.default.fileExists(atPath: targetPath) {
+                let existingContent = try String(contentsOfFile: targetPath, encoding: .utf8)
+                needsUpdate = (existingContent != scriptContent)
+            } else {
+                needsUpdate = true
+            }
+
+            if needsUpdate {
+                // 写入脚本
+                try scriptContent.write(toFile: targetPath, atomically: true, encoding: .utf8)
+
+                // 设置可执行权限
+                try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: targetPath)
+
+                print("Hook script installed to: \(targetPath)")
+
+                // 更新 settings.json
+                updateSettingsJsonWithHook()
+            } else {
+                print("Hook script already up-to-date")
+            }
+        } catch {
+            print("Failed to auto-install hook: \(error)")
+        }
+    }
+
+    private func updateSettingsJsonWithHook() {
+        let settingsPath = NSString(string: "~/.claude/settings.json").expandingTildeInPath
+        let glanceCommand = "claude-glance-reporter.sh"
+        let hookTypes = ["PreToolUse", "PostToolUse", "Notification", "Stop"]
+
+        do {
+            var settings: [String: Any] = [:]
+
+            // 读取现有配置
+            if FileManager.default.fileExists(atPath: settingsPath) {
+                let data = try Data(contentsOf: URL(fileURLWithPath: settingsPath))
+                if let existingSettings = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    settings = existingSettings
+                }
+            }
+
+            // 获取或创建 hooks 字典
+            var hooks = settings["hooks"] as? [String: Any] ?? [:]
+
+            // 对每个 hook 类型进行智能合并
+            for hookType in hookTypes {
+                let glanceEntry: [String: Any] = [
+                    "matcher": "*",
+                    "hooks": [
+                        ["type": "command", "command": "~/.claude/hooks/claude-glance-reporter.sh \(hookType)"]
+                    ]
+                ]
+
+                if var existingArray = hooks[hookType] as? [[String: Any]] {
+                    // 检查是否已经有 claude-glance-reporter 的配置
+                    let glanceIndex = existingArray.firstIndex { matcher in
+                        guard let hooksList = matcher["hooks"] as? [[String: Any]] else { return false }
+                        return hooksList.contains { hook in
+                            guard let command = hook["command"] as? String else { return false }
+                            return command.contains(glanceCommand)
+                        }
+                    }
+
+                    if let index = glanceIndex {
+                        // 已存在，更新它
+                        existingArray[index] = glanceEntry
+                    } else {
+                        // 不存在，追加到数组末尾
+                        existingArray.append(glanceEntry)
+                    }
+                    hooks[hookType] = existingArray
+                } else {
+                    // 该 hook 类型不存在，创建新数组
+                    hooks[hookType] = [glanceEntry]
+                }
+            }
+
+            settings["hooks"] = hooks
+
+            // 写回文件
+            let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys])
+            try data.write(to: URL(fileURLWithPath: settingsPath))
+
+            print("Settings.json updated successfully")
+        } catch {
+            print("Failed to update settings.json: \(error)")
+        }
+    }
+
     // MARK: - Actions
     @objc func showHUD() {
         hudWindowController?.window?.orderFront(nil)
@@ -168,6 +369,18 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         settingsWindowController?.showWindow(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    @objc func restartService() {
+        ipcServer.stop()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            do {
+                try self?.ipcServer.start()
+            } catch {
+                print("Failed to restart IPC server: \(error)")
+            }
+        }
     }
 
     @objc func quitApp() {
@@ -793,7 +1006,7 @@ struct AboutSettingsTab: View {
                     .font(.title)
                     .fontWeight(.semibold)
 
-                Text("Version 1.0.0")
+                Text("Version 1.2")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -814,14 +1027,14 @@ struct AboutSettingsTab: View {
             // Links
             HStack(spacing: 20) {
                 Button("GitHub") {
-                    if let url = URL(string: "https://github.com/0xkiw1/ClaudeGlance") {
+                    if let url = URL(string: "https://github.com/MJYKIM99/ClaudeGlance") {
                         NSWorkspace.shared.open(url)
                     }
                 }
                 .buttonStyle(.link)
 
                 Button("Report Issue") {
-                    if let url = URL(string: "https://github.com/0xkiw1/ClaudeGlance/issues") {
+                    if let url = URL(string: "https://github.com/MJYKIM99/ClaudeGlance/issues") {
                         NSWorkspace.shared.open(url)
                     }
                 }

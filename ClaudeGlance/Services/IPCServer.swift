@@ -266,7 +266,7 @@ class IPCServer: ObservableObject {
         let semaphore = DispatchSemaphore(value: 0)
         var startError: Error?
 
-        listener.stateUpdateHandler = { [weak self] state in
+        listener.stateUpdateHandler = { state in
             switch state {
             case .ready:
                 print("HTTP server listening on port \(port)")

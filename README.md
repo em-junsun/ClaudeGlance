@@ -11,7 +11,7 @@
 <p align="center">
   <a href="https://github.com/MJYKIM99/ClaudeGlance/releases"><img src="https://img.shields.io/github/v/release/MJYKIM99/ClaudeGlance?style=flat-square&color=blue&cacheSeconds=60" alt="Release"></a>
   <a href="https://github.com/MJYKIM99/ClaudeGlance/blob/main/LICENSE"><img src="https://img.shields.io/github/license/MJYKIM99/ClaudeGlance?style=flat-square&cacheSeconds=3600" alt="License"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%2014%2B-lightgrey?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/platform-macOS%2015%2B-lightgrey?style=flat-square" alt="Platform">
   <img src="https://img.shields.io/badge/swift-5.9-orange?style=flat-square" alt="Swift">
 </p>
 
@@ -28,7 +28,7 @@
 </p>
 
 <p align="center">
-  <img src="demo.gif" width="400" alt="Claude Glance Demo">
+  <img src="demo.gif" width="500" alt="Claude Glance Demo">
 </p>
 
 ---
@@ -40,6 +40,9 @@ A native macOS application that provides a real-time floating HUD (Heads-Up Disp
 - **Multi-Terminal Tracking** - Monitor multiple Claude Code sessions at once
 - **Real-time Status Display** - See if Claude is reading, writing, thinking, or waiting
 - **Pixel Art Animations** - Beautiful 4x4 pixel grid with unique animations for each state
+- **Auto-Install Hooks** - Hook scripts are bundled and automatically configured on first launch
+- **Service Status Monitoring** - Built-in service health indicator in menu bar
+- **High Contrast Display** - Optimized for both light and dark desktop backgrounds
 - **Fluid Window** - Automatically scales based on active session count
 - **Always On Top** - Floating window stays visible above all other windows
 - **Menu Bar Integration** - Quick access through the menu bar icon
@@ -62,12 +65,7 @@ A native macOS application that provides a real-time floating HUD (Heads-Up Disp
 
 1. Download the latest `ClaudeGlance.dmg` from [Releases](https://github.com/MJYKIM99/ClaudeGlance/releases)
 2. Open the DMG and drag `ClaudeGlance.app` to Applications
-3. Run the install script to configure hooks:
-
-```bash
-cd /Applications/ClaudeGlance.app/Contents/Resources/Scripts
-./install.sh
-```
+3. Launch the app - hooks will be **automatically installed** on first run
 
 ### Option 2: Build from Source
 
@@ -77,23 +75,38 @@ cd ClaudeGlance
 xcodebuild -scheme ClaudeGlance -configuration Release
 ```
 
-### Install Hook Script
-
-```bash
-cd ClaudeGlance/Scripts
-./install.sh
+The built app will be at:
+```
+~/Library/Developer/Xcode/DerivedData/ClaudeGlance-*/Build/Products/Release/ClaudeGlance.app
 ```
 
-This will:
-- Copy the hook script to `~/.claude/hooks/`
-- Configure Claude Code's `settings.json`
+### What Gets Auto-Installed
+
+When you first launch ClaudeGlance, it automatically:
+
+1. Copies the hook script to `~/.claude/hooks/claude-glance-reporter.sh`
+2. Sets executable permissions (`chmod +x`)
+3. Updates `~/.claude/settings.json` with hook configuration
+
+No manual setup required!
 
 ## Usage
 
 1. Launch ClaudeGlance.app
-2. A ✨ icon will appear in your menu bar
+2. A grid icon (···) will appear in your menu bar
 3. Start using Claude Code in any terminal
 4. The HUD will automatically display session status
+
+### Menu Bar Options
+
+| Option | Description |
+|--------|-------------|
+| Service Status | Shows if the IPC server is running |
+| Show/Hide HUD | Toggle the floating window |
+| Active Sessions | Live count of monitored sessions |
+| Today's Stats | Tool calls and sessions count |
+| Restart Service | Restart the IPC server if needed |
+| Settings | Configure appearance and behavior |
 
 ## Manual Hook Configuration
 
@@ -167,7 +180,7 @@ ClaudeGlance/
 │   └── CodeRainEffect.swift       # Code rain effect
 └── Scripts/
     ├── install.sh                 # Installation script
-    └── claude-glance-reporter.sh  # Hook reporter script
+    └── claude-glance-reporter.sh  # Hook reporter script (bundled)
 ```
 
 ## Communication Protocol
@@ -192,7 +205,7 @@ The HUD receives JSON messages via Unix Socket (`/tmp/claude-glance.sock`) or HT
 
 ## Requirements
 
-- macOS 14.0+
+- macOS 15.0+
 - Xcode 15.0+ (for building from source)
 - Claude Code CLI (tested with hooks API)
 
@@ -201,17 +214,20 @@ The HUD receives JSON messages via Unix Socket (`/tmp/claude-glance.sock`) or HT
 To completely remove Claude Glance:
 
 ```bash
-# Option 1: Run uninstall script
-cd /Applications/ClaudeGlance.app/Contents/Resources/Scripts
-./uninstall.sh
-
-# Option 2: Manual removal
+# Remove hook script
 rm ~/.claude/hooks/claude-glance-reporter.sh
+
+# Remove app
 rm -rf /Applications/ClaudeGlance.app
-# Then manually remove hooks from ~/.claude/settings.json
+
+# Manually remove hooks from ~/.claude/settings.json
 ```
 
 ## FAQ
+
+### Do I need to manually install hooks anymore?
+
+**No!** As of v1.1, hooks are automatically installed when you first launch the app.
 
 ### Why does Claude Glance need hooks?
 
@@ -223,10 +239,15 @@ Any terminal that runs Claude Code CLI: Terminal.app, iTerm2, Warp, VS Code term
 
 ### Why is the HUD not showing any sessions?
 
-1. Make sure ClaudeGlance.app is running (check for ✨ in menu bar)
-2. Verify hooks are installed: check `~/.claude/settings.json`
-3. Check if the socket exists: `ls /tmp/claude-glance.sock`
-4. Try restarting Claude Code session
+1. Make sure ClaudeGlance.app is running (check for grid icon in menu bar)
+2. Check menu bar: "Service: Running" should be shown
+3. Verify hooks are installed: check `~/.claude/settings.json`
+4. Check if the socket exists: `ls /tmp/claude-glance.sock`
+5. Try restarting Claude Code session
+
+### The HUD text is hard to read on light backgrounds
+
+The HUD uses a high-contrast dark background that works on both light and dark desktops. If you're still having issues, try adjusting your display settings or use a darker desktop wallpaper.
 
 ### Is my data uploaded anywhere?
 
@@ -236,13 +257,12 @@ Any terminal that runs Claude Code CLI: Terminal.app, iTerm2, Warp, VS Code term
 - No network requests to external servers
 - All data stays on your machine
 
-### How do I disable specific fields (privacy)?
+### What does the menu bar icon mean?
 
-Currently all fields are used for display only. A future version will add options to hide sensitive paths. For now, no data leaves your machine.
-
-### How do I uninstall?
-
-Run `./uninstall.sh` from the Scripts folder, or manually remove the hook script and clean up `settings.json`. See [Uninstall](#uninstall) section.
+| Icon | Meaning |
+|------|---------|
+| ●●● (3x3 grid) | Service running normally |
+| ⚠️ | Service error - try "Restart Service" |
 
 ## License
 
@@ -267,6 +287,9 @@ Created by **Kim**
 - **多终端追踪** - 同时监控多个 Claude Code 会话
 - **实时状态显示** - 查看 Claude 正在读取、写入、思考还是等待
 - **像素艺术动画** - 4x4 像素网格，不同状态展示不同动画效果
+- **自动安装 Hooks** - 首次启动时自动配置 hook 脚本，无需手动设置
+- **服务状态监控** - 菜单栏显示服务健康状态
+- **高对比度显示** - 优化背景对比度，支持浅色和深色桌面
 - **流体窗口** - 根据活动会话数量自动伸缩
 - **始终置顶** - 悬浮窗口不会被其他窗口遮挡
 - **菜单栏集成** - 通过菜单栏图标快速控制
@@ -289,12 +312,7 @@ Created by **Kim**
 
 1. 从 [Releases](https://github.com/MJYKIM99/ClaudeGlance/releases) 下载最新的 `ClaudeGlance.dmg`
 2. 打开 DMG，将 `ClaudeGlance.app` 拖到"应用程序"文件夹
-3. 运行安装脚本配置 hooks：
-
-```bash
-cd /Applications/ClaudeGlance.app/Contents/Resources/Scripts
-./install.sh
-```
+3. 启动应用 —— hooks 会**自动安装**，无需手动配置
 
 ### 方式二：从源码构建
 
@@ -304,29 +322,58 @@ cd ClaudeGlance
 xcodebuild -scheme ClaudeGlance -configuration Release
 ```
 
-### 安装 Hook 脚本
-
-```bash
-cd ClaudeGlance/Scripts
-./install.sh
+构建后的应用位于：
+```
+~/Library/Developer/Xcode/DerivedData/ClaudeGlance-*/Build/Products/Release/ClaudeGlance.app
 ```
 
-这会：
-- 将 hook 脚本复制到 `~/.claude/hooks/`
-- 配置 Claude Code 的 `settings.json`
+### 自动安装内容
+
+首次启动 ClaudeGlance 时，它会自动：
+
+1. 将 hook 脚本复制到 `~/.claude/hooks/claude-glance-reporter.sh`
+2. 设置可执行权限 (`chmod +x`)
+3. 更新 `~/.claude/settings.json` 中的 hook 配置
+
+完全无需手动设置！
 
 ## 使用方法
 
 1. 启动 ClaudeGlance.app
-2. 菜单栏会出现 ✨ 图标
+2. 菜单栏会出现九宫格图标 (···)
 3. 在任意终端中使用 Claude Code
 4. HUD 会自动显示会话状态
 
+### 菜单栏选项
+
+| 选项 | 说明 |
+|------|------|
+| 服务状态 | 显示 IPC 服务器是否运行 |
+| 显示/隐藏 HUD | 切换悬浮窗口 |
+| 活动会话 | 当前监控的会话数量 |
+| 今日统计 | 工具调用和会话计数 |
+| 重启服务 | 需要时重启 IPC 服务器 |
+| 设置 | 配置外观和行为 |
+
 ## 系统要求
 
-- macOS 14.0+
+- macOS 15.0+
 - Xcode 15.0+（从源码构建时需要）
 - Claude Code CLI
+
+## 卸载
+
+完全移除 Claude Glance：
+
+```bash
+# 删除 hook 脚本
+rm ~/.claude/hooks/claude-glance-reporter.sh
+
+# 删除应用
+rm -rf /Applications/ClaudeGlance.app
+
+# 手动从 ~/.claude/settings.json 中移除 hooks
+```
 
 ## 许可证
 

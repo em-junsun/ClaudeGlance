@@ -42,41 +42,37 @@ struct SessionCard: View {
                             .lineLimit(1)
                     }
 
-                    // 副标题：项目名 + session标识 + 元数据 + 时间信息
+                    // 副标题：项目名 + 元数据
                     HStack(spacing: 4) {
                         Text(session.project)
                             .font(.system(size: 11))
-                            .foregroundColor(.white.opacity(0.5))
-
-                        Text(session.shortId)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundColor(.white.opacity(0.35))
+                            .foregroundColor(.white.opacity(0.6))
 
                         if !session.metadata.isEmpty && !session.isStillWaiting {
                             Text("·")
-                                .foregroundColor(.white.opacity(0.3))
+                                .foregroundColor(.white.opacity(0.4))
                             Text(session.metadata)
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.white.opacity(0.5))
+                                .foregroundColor(.white.opacity(0.6))
                                 .lineLimit(1)
                         }
 
                         // 长时间思考时显示已用时间
                         if session.isStillThinking {
                             Text("·")
-                                .foregroundColor(.white.opacity(0.3))
+                                .foregroundColor(.white.opacity(0.4))
                             Text(formatElapsedTime(session.lastUpdate))
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.yellow.opacity(0.6))
+                                .foregroundColor(.yellow.opacity(0.7))
                         }
 
                         // 长时间等待时显示剩余时间
                         if session.isStillWaiting, let remaining = session.waitingSecondsRemaining {
                             Text("·")
-                                .foregroundColor(.white.opacity(0.3))
+                                .foregroundColor(.white.opacity(0.4))
                             Text("auto-hide in \(remaining)s")
                                 .font(.system(size: 11, design: .monospaced))
-                                .foregroundColor(.orange.opacity(0.6))
+                                .foregroundColor(.orange.opacity(0.7))
                         }
                     }
                 }
@@ -122,7 +118,14 @@ struct SessionCard: View {
                     ))
             }
         }
-        .background(Color.white.opacity(0.05))
+        .background(
+            ZStack {
+                // 深色底层，确保在浅色背景下也有足够对比度
+                Color.black.opacity(0.4)
+                // 轻微的白色叠加
+                Color.white.opacity(0.03)
+            }
+        )
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .opacity(session.calculatedOpacity)
         .animation(.easeOut(duration: 0.5), value: session.calculatedOpacity)
