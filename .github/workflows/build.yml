@@ -1,0 +1,87 @@
+name: Build ClaudeGlance
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '版本号 (例如: 1.2.1-fix)'
+        required: true
+        default: '1.2.1-fix'
+  push:
+    branches: [ main ]
+    paths:
+      - 'ClaudeGlance/Views/HUDWindowController.swift'
+      - '.github/workflows/build.yml'
+
+jobs:
+  build:
+    name: Build macOS App
+    runs-on: macos-latest
+
+    steps:
+      - name: 检查代码
+        uses: actions/checkout@v4
+
+      - name: 显示 Xcode 版本
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: 编译应用
+        run: |
+          xcodebuild \
+            -project ClaudeGlance.xcodeproj \
+            -scheme ClaudeGlance \
+            -configuration Release \
+            -derivedDataPath build \
+            CLEAN_BUILD=1 \
+            build
+
+      - name: 查找构建产物
+        run: |
+          find build -name "*.app" -type d
+          ls -la build/Build/Products/Release/
+
+      - name: 创建 DMG 镜像
+        run: |
+          APP_PATH=$(find build/Build/Products/Release -name "ClaudeGlance.app" -type d | head -1)
+          echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
+          
+          # 创建临时目录
+          mkdir -p dmg_temp
+          
+          # 复制应用
+          cp -R "$APP_PATH" dmg_temp/
+          
+          # 创建 DMG
+          hdiutil create -volname "ClaudeGlance" \
+            -srcfolder dmg_temp \
+            -ov \
+            -format UDZO \
+            "ClaudeGlance-${{ github.event.inputs.version }}.dmg"
+
+      - name: 上传应用
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeGlance-${{ github.event.inputs.version }}.app
+          path: ${{ env.APP_PATH }}
+          retention-days: 30
+
+      - name: 上传 DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: ClaudeGlance-${{ github.event.inputs.version }}.dmg
+          path: ClaudeGlance-${{ github.event.inputs.version }}.dmg
+          retention-days: 30
+
+      - name: 构建摘要
+        run: |
+          echo "## ✅ 构建成功！" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**版本**: ${{ github.event.inputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**提交**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 📦 下载产物" >> $GITHUB_STEP_SUMMARY
+          echo "请从下方的 Artifacts 中下载：" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ClaudeGlance-${{ github.event.inputs.version }}.app\` - 直接拖入 Applications" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ClaudeGlance-${{ github.event.inputs.version }}.dmg\` - 挂载后安装" >> $GITHUB_STEP_SUMMARY

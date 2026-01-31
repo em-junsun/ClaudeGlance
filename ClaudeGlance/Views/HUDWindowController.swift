@@ -150,15 +150,19 @@ class HUDWindowController: NSWindowController {
     private func updateWindowSize(for sessions: [SessionState]) {
         guard let window = window else { return }
 
+        // 🔧 修复偏移问题: 使用固定宽度 (320px)
+        // 这样可以避免宽度变化导致的 X 坐标偏移
+        let fixedWidth: CGFloat = 320
+
         let newSize: NSSize
         if sessions.isEmpty {
-            newSize = NSSize(width: 48, height: 48)
+            newSize = NSSize(width: fixedWidth, height: 48)
         } else {
             let cardHeight: CGFloat = 56
             let padding: CGFloat = 16
             let spacing: CGFloat = 8
             let height = padding + CGFloat(sessions.count) * cardHeight + CGFloat(max(0, sessions.count - 1)) * spacing
-            newSize = NSSize(width: 320, height: height)
+            newSize = NSSize(width: fixedWidth, height: height)
         }
 
         // 动画更新窗口大小
@@ -166,9 +170,9 @@ class HUDWindowController: NSWindowController {
             context.duration = 0.3
             context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
 
-            // 保持顶部位置不变
+            // 🔧 保持顶部位置不变，X 坐标不再调整（避免偏移）
             let newOrigin = NSPoint(
-                x: window.frame.origin.x + (window.frame.width - newSize.width) / 2,
+                x: window.frame.origin.x,
                 y: window.frame.origin.y + window.frame.height - newSize.height
             )
 
