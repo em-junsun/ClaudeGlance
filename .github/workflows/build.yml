@@ -27,29 +27,36 @@ jobs:
           xcodebuild -version
           swift --version
 
-      - name: 列可用的 schemes
+      - name: 列出项目配置
         run: |
-          xcodebuild -workspace ClaudeGlance.xcworkspace -list
+          echo "=== 项目目录结构 ==="
+          ls -la
+          echo ""
+          echo "=== Xcode 项目文件 ==="
+          ls -la *.xcodeproj/
+          echo ""
+          echo "=== 可用的 schemes ==="
+          xcodebuild -project ClaudeGlance.xcodeproj -list
 
       - name: 编译应用
         run: |
           xcodebuild \
-            -workspace ClaudeGlance.xcworkspace \
+            -project ClaudeGlance.xcodeproj \
             -scheme ClaudeGlance \
             -configuration Release \
             -derivedDataPath build \
-            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             build
 
       - name: 查找构建产物
         run: |
-          echo "查找 .app 文件..."
+          echo "=== 查找 .app 文件 ==="
           find build -name "*.app" -type d
           echo ""
-          echo "Build/Build/Products 目录内容:"
-          ls -laR build/Build/Products/ || echo "目录不存在"
+          echo "=== 查找所有构建产物 ==="
+          ls -laR build/Build/Products/
 
       - name: 创建 DMG 镜像
         run: |
@@ -57,33 +64,19 @@ jobs:
 
           if [ -z "$APP_PATH" ]; then
             echo "❌ 未找到 ClaudeGlance.app"
+            echo "=== 调试信息 ==="
+            find build -type f -name "*.app" 2>/dev/null || echo "没有找到任何 .app 文件"
+            ls -la build/ || echo "build 目录为空"
             exit 1
           fi
 
           echo "✅ 找到应用: $APP_PATH"
           echo "APP_PATH=$APP_PATH" >> $GITHUB_ENV
 
-          # 验证应用
-          if [ -d "$APP_PATH" ]; then
-            echo "✅ 应用目录存在"
-            ls -la "$APP_PATH"
-          else
-            echo "❌ 应用目录不存在"
-            exit 1
-          fi
-
-          # 创建临时目录
-          mkdir -p dmg_temp
-
-          # 复制应用
-          cp -R "$APP_PATH" dmg_temp/
-
-          # 创建 DMG
-          hdiutil create -volname "ClaudeGlance" \
-            -srcfolder dmg_temp \
-            -ov \
-            -format UDZO \
-            "ClaudeGlance-${{ github.event.inputs.version }}.dmg"
+          # 验证应用结构
+          echo "=== 应用结构 ==="
+          ls -la "$APP_PATH"
+          ls -la "$APP_PATH/Contents/"
 
       - name: 上传应用
         uses: actions/upload-artifact@v4
@@ -91,14 +84,6 @@ jobs:
         with:
           name: ClaudeGlance-${{ github.event.inputs.version }}.app
           path: ${{ env.APP_PATH }}
-          retention-days: 30
-
-      - name: 上传 DMG
-        uses: actions/upload-artifact@v4
-        if: success()
-        with:
-          name: ClaudeGlance-${{ github.event.inputs.version }}.dmg
-          path: ClaudeGlance-${{ github.event.inputs.version }}.dmg
           retention-days: 30
 
       - name: 构建摘要
@@ -111,5 +96,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 📦 下载产物" >> $GITHUB_STEP_SUMMARY
           echo "请从下方的 Artifacts 中下载：" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ClaudeGlance-${{ github.event.inputs.version }}.app\` - 直接拖入 Applications" >> $GITHUB_STEP_SUMMARY
-          echo "- \`ClaudeGlance-${{ github.event.inputs.version }}.dmg\` - 挂载后安装" >> $GITHUB_STEP_SUMMARY
+          echo "- \`ClaudeGlance-${{ github.event.inputs.version }}.app\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### 安装步骤" >> $GITHUB_STEP_SUMMARY
+          echo "1. 下载并解压 ClaudeGlance.app" >> $GITHUB_STEP_SUMMARY
+          echo "2. 拖拽到 /Applications 文件夹" >> $GITHUB_STEP_SUMMARY
+          echo "3. 运行: open /Applications/ClaudeGlance.app" >> $GITHUB_STEP_SUMMARY
