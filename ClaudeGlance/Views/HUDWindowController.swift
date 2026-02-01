@@ -22,6 +22,9 @@ class HUDWindowController: NSWindowController {
     // 窗口可见性状态 - 用于控制动画
     private let windowVisibility = WindowVisibility()
 
+    // 🔧 修复偏移问题: 跟踪窗口大小动画状态，避免在动画期间保存位置
+    private var isResizing = false
+
     init(sessionManager: SessionManager) {
         self.sessionManager = sessionManager
 
@@ -165,6 +168,10 @@ class HUDWindowController: NSWindowController {
             newSize = NSSize(width: fixedWidth, height: height)
         }
 
+        // 🔧 修复偏移问题: 标记开始调整窗口大小，禁用位置保存
+        // 这避免了在动画过程中保存中间状态的错误位置
+        isResizing = true
+
         // 动画更新窗口大小
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.3
@@ -180,11 +187,19 @@ class HUDWindowController: NSWindowController {
                 NSRect(origin: newOrigin, size: newSize),
                 display: true
             )
+        } completionHandler: {
+            // 🔧 修复偏移问题: 动画完成后重新启用位置保存
+            self.isResizing = false
+            // 动画完成后，立即保存最终位置
+            self.savePosition()
         }
     }
 
     // MARK: - Save Position
     func savePosition() {
+        // 🔧 修复偏移问题: 如果正在调整窗口大小，跳过保存位置
+        // 这避免了在动画过程中保存中间状态的错误位置
+        guard !isResizing else { return }
         guard let window = window else { return }
 
         UserDefaults.standard.set(window.frame.origin.x, forKey: "hudPositionX")
